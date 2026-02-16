@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual env
+venv/
+.venv/
+
+# Data
+data/
+training_pipeline/data/
+
+# Models
+*.pkl
+*.joblib
+
+# Logs
+results/
+*.log
+
+# Large files
+*.pcap
+*.csv
