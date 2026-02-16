@@ -1,49 +1,268 @@
-# Network Traffic Classification and Anomaly Detection
+# 📡 Network Traffic Classification & Anomaly Detection
 
-Adaptive flow-level ML framework for supervised traffic classification, unsupervised anomaly detection, and a hybrid decision engine aligned with ITC/NAL operational traffic.
+> Adaptive Flow-Level Machine Learning Framework for Supervised Traffic Classification, Unsupervised Anomaly Detection, and Hybrid Decision Intelligence aligned with ITC/NAL operational environments.
 
-## Repository Structure (scaffolded)
-- `data/`
-  - `raw/` — incoming PCAPs or exported flows (read-only)
-  - `external/` — third-party datasets (e.g., CIC-IDS, UNSW-NB15)
-  - `interim/flows/` — raw flow exports before cleaning
-  - `interim/cleaned_flows/` — validated/cleaned flow CSVs
-  - `processed/feature_vectors/` — engineered numeric features
-  - `processed/encoders/`, `processed/scalers/` — fitted transformers
-  - `processed/anomaly_scores/` — scored flows for review
-  - `processed/model_inputs/` — train/val/test splits
-- `src/`
-  - `data_collection/` — dataset ingestion helpers
-  - `preprocessing/` — flow parsing, cleaning, validation
-  - `feature_engineering/` — feature builders and encoders
-  - `models/supervised/` and `models/unsupervised/` — ML model wrappers
-  - `decision_engine/` — hybrid decision logic
-  - `pipelines/` — end-to-end orchestrations/entrypoints
-  - `evaluation/` — metrics, cross-validation, reports
-  - `visualization/` — plotting utilities
-  - `config/`, `utils/` — shared config and helpers
-- `configs/` — experiment or pipeline config files (YAML/JSON)
-- `pipelines/` — CLI entry scripts for batch runs
-- `scripts/` — one-off utilities (e.g., data sanity checks)
-- `artifacts/` — trained models and encoders
-- `notebooks/`
-  - `exploratory/` — dataset profiling and sanity checks
-  - `model_dev/` — model prototyping
-  - `reports/` — static analysis notebooks for sharing
-- `results/`
-  - `figures/`, `metrics/`, `reports/` — outputs for review
-- `docs/` — dataset notes, experiment logs, feature descriptions
+---
 
-## Phase Mapping
-- Phase 1–2: ingest PCAPs into `data/raw` → flows in `data/interim/flows` → cleaned `data/interim/cleaned_flows`.
-- Phase 3: feature extraction to `data/processed/feature_vectors` plus fitted encoders/scalers.
-- Phase 4: supervised models saved under `artifacts/models/supervised`.
-- Phase 5: unsupervised detectors saved under `artifacts/models/unsupervised`; anomaly scores in `data/processed/anomaly_scores`.
-- Phase 6: hybrid decisions implemented in `src/decision_engine`; outputs archived in `results/`.
-- Phase 7–8: visualization and reporting under `results/` with documentation in `docs/`.
+## 📌 Project Overview
 
-## Usage Notes
-- Keep `data/raw` immutable; derive all downstream data via scripts/notebooks.
-- Track dataset provenance and assumptions in `docs/dataset_notes.md`.
-- Log experiments (configs, seeds, metrics) in `docs/experiment_log.md`.
-- Document feature definitions and encoding choices in `docs/feature_description.md`.
+This project implements an end-to-end **network traffic intelligence system** capable of:
+
+- Flow-level traffic classification
+- Zero-day anomaly detection
+- Hybrid decision-based risk scoring
+- Secure dependency tracking (SBOM + Vulnerability Scanning)
+- Research-grade experiment tracking
+
+The framework is modular, reproducible, and designed for operational deployment.
+
+---
+
+# 🏗 System Architecture
+
+## 🔄 High-Level Architecture
+
+```mermaid
+flowchart LR
+    A[PCAP / Raw Traffic] --> B[Flow Extraction]
+    B --> C[Data Cleaning & Validation]
+    C --> D[Feature Engineering]
+    D --> E[Supervised Models]
+    D --> F[Unsupervised Models]
+    E --> G[Hybrid Decision Engine]
+    F --> G
+    G --> H[Risk Classification Output]
+    H --> I[Reports & Visualization]
+```
+
+---
+
+# 🧠 ML Strategy
+
+## 1️⃣ Supervised Learning
+Used for known attack detection and traffic classification.
+
+Planned Models:
+- Random Forest
+- XGBoost
+- Logistic Regression
+- Deep Neural Networks
+
+---
+
+## 2️⃣ Unsupervised Learning
+Used for anomaly detection and unknown attack discovery.
+
+Planned Models:
+- Isolation Forest
+- One-Class SVM
+- Autoencoder
+- Local Outlier Factor (LOF)
+
+---
+
+## 3️⃣ Hybrid Decision Engine
+
+Combines:
+- Supervised probability score
+- Unsupervised anomaly score
+- Configurable risk thresholds
+
+Final Output:
+- Normal
+- Suspicious
+- Malicious
+- Critical
+
+---
+
+# 📂 Repository Structure
+
+```
+Network-Traffic-Classification/
+│
+├── data/
+│   ├── raw/
+│   ├── external/
+│   ├── interim/
+│   └── processed/
+│
+├── src/
+│   ├── data_collection/
+│   ├── preprocessing/
+│   ├── feature_engineering/
+│   ├── models/
+│   ├── decision_engine/
+│   ├── pipelines/
+│   ├── evaluation/
+│   └── visualization/
+│
+├── configs/
+├── artifacts/
+├── notebooks/
+├── results/
+├── docs/
+└── security/
+```
+
+---
+
+# 🔬 Data Pipeline
+
+```mermaid
+flowchart TD
+    A[data/raw PCAPs] --> B[Flow Extraction]
+    B --> C[data/interim/flows]
+    C --> D[Cleaning & Validation]
+    D --> E[data/interim/cleaned_flows]
+    E --> F[Feature Engineering]
+    F --> G[data/processed/feature_vectors]
+    G --> H[Train / Validation Split]
+    H --> I[Model Training]
+    I --> J[Artifacts & Reports]
+```
+
+---
+
+# 🛡 Security (SBOM + Vulnerability Scanning)
+
+This project integrates secure software supply chain practices.
+
+## Generate SBOM
+
+```bash
+syft requirements.txt -o cyclonedx-json > security/sbom.json
+```
+
+## Scan for Vulnerabilities
+
+```bash
+grype sbom:security/sbom.json
+```
+
+Ensures:
+- Dependency transparency
+- CVE detection
+- Secure research deployment
+
+---
+
+# ⚙️ Installation
+
+```bash
+git clone https://github.com/your-username/network-traffic-classification.git
+cd network-traffic-classification
+
+python -m venv .venv
+source .venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+---
+
+# 🚀 Running Pipelines
+
+Example supervised training:
+
+```bash
+python pipelines/train_supervised.py --config configs/supervised.yaml
+```
+
+Example anomaly detection:
+
+```bash
+python pipelines/train_unsupervised.py --config configs/unsupervised.yaml
+```
+
+Hybrid decision engine:
+
+```bash
+python pipelines/run_hybrid.py --config configs/hybrid.yaml
+```
+
+---
+
+# 📊 Evaluation Metrics
+
+Supervised:
+- Accuracy
+- Precision
+- Recall
+- F1-score
+- ROC-AUC
+
+Unsupervised:
+- ROC-AUC
+- PR-AUC
+- Anomaly Score Distribution
+- Detection Rate
+
+---
+
+# 📈 Results & Reporting
+
+Outputs stored in:
+
+```
+results/
+├── figures/
+├── metrics/
+└── reports/
+```
+
+Includes:
+- Confusion matrices
+- ROC curves
+- Feature importance plots
+- Anomaly score distributions
+
+---
+
+# 📘 Documentation
+
+All documentation stored in:
+
+```
+docs/
+├── dataset_notes.md
+├── experiment_log.md
+└── feature_description.md
+```
+
+Tracks:
+- Dataset provenance
+- Feature definitions
+- Experiment configurations
+- Model comparison logs
+
+---
+
+# 🎯 Project Goals
+
+- Build adaptive ML-driven network defense
+- Detect known and unknown threats
+- Provide explainable decision logic
+- Ensure secure software practices
+- Enable reproducible research
+
+---
+
+# 🔮 Future Enhancements
+
+- Real-time streaming classification
+- REST API deployment
+- Dashboard interface
+- Automated CI/CD security scanning
+- Model drift monitoring
+- Explainable AI (SHAP integration)
+
+---
+
+# 👨‍💻 Author
+
+Network Security Research Project  
+ITC / NAL Aligned ML Framework
+
+---
+
