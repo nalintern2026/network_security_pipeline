@@ -54,3 +54,9 @@ docker compose down
 2. `cd nal/frontend`
 3. `npm install`
 4. `npm run dev`
+
+
+
+source .venv/bin/activate
+
+uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
