@@ -23,14 +23,15 @@ The framework is modular, reproducible, and designed for operational deployment.
 
 ```mermaid
 flowchart LR
-    A[PCAP / CSV Traffic] --> B[FastAPI Backend]
-    B --> C[Decision Engine]
-    C --> D[Feature Engineering (Core)]
-    D --> E[Supervised Model (RF)]
-    D --> F[Unsupervised Model (IF)]
-    E --> G[Hybrid Risk Scoring]
+    A["PCAP / CSV Traffic"] --> B["FastAPI Backend"]
+    B --> C["Decision Engine"]
+    C --> D["Feature Engineering - Core"]
+    D --> E["Supervised Model - Random Forest"]
+    D --> F["Unsupervised Model - Isolation Forest"]
+    E --> G["Hybrid Risk Scoring"]
     F --> G
-    G --> H[React Dashboard]
+    G --> H["React Dashboard"]
+
 ```
 
 ---
