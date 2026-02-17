@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+training_pipeline/data/
+training_pipeline/models/
+backend/app/temp_uploads/
+frontend/node_modules/
+frontend/dist/
+.git/
+.vscode/
+.idea/
+.DS_Store

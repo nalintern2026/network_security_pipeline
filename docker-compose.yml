@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  # Backend API & ML Service
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - /app/__pycache__
+      - /app/.venv
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
+
+  # React Frontend Dashboard
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # Use container dependencies
+    environment:
+      - VITE_API_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
