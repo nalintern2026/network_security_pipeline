@@ -1,23 +1,58 @@
 # Python
 __pycache__/
 *.pyc
-
-# Virtual env
+*.pyo
+*.pyd
+.Python
+env/
 venv/
 .venv/
+pip-log.txt
+pip-delete-this-directory.txt
 
-# Data
+# Jupyter Notebooks
+.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# VS Code
+.vscode/
+.history/
+
+# Data & Large Files
 data/
 training_pipeline/data/
+*.csv
+*.pcap
+*.pcapng
+*.zip
+*.tar.gz
+*.h5
 
-# Models
+# Models & Artifacts
 *.pkl
 *.joblib
+training_pipeline/models/
+backend/app/temp_uploads/
 
-# Logs
+# Logs & Results
 results/
+logs/
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Large files
-*.pcap
-*.csv
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# Mac
+.DS_Store
+
+# IDE
+.idea/

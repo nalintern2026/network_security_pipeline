@@ -8,11 +8,10 @@
 
 This project implements an end-to-end **network traffic intelligence system** capable of:
 
-- Flow-level traffic classification
-- Zero-day anomaly detection
-- Hybrid decision-based risk scoring
-- Secure dependency tracking (SBOM + Vulnerability Scanning)
-- Research-grade experiment tracking
+- **Flow-level traffic classification** using Random Forest.
+- **Zero-day anomaly detection** using Isolation Forest.
+- **Hybrid decision-based risk scoring** combining both models.
+- **Real-time Visualization** via a React Dashboard and FastAPI Backend.
 
 The framework is modular, reproducible, and designed for operational deployment.
 
@@ -24,245 +23,124 @@ The framework is modular, reproducible, and designed for operational deployment.
 
 ```mermaid
 flowchart LR
-    A[PCAP / Raw Traffic] --> B[Flow Extraction]
-    B --> C[Data Cleaning & Validation]
-    C --> D[Feature Engineering]
-    D --> E[Supervised Models]
-    D --> F[Unsupervised Models]
-    E --> G[Hybrid Decision Engine]
+    A[PCAP / CSV Traffic] --> B[FastAPI Backend]
+    B --> C[Decision Engine]
+    C --> D[Feature Engineering (Core)]
+    D --> E[Supervised Model (RF)]
+    D --> F[Unsupervised Model (IF)]
+    E --> G[Hybrid Risk Scoring]
     F --> G
-    G --> H[Risk Classification Output]
-    H --> I[Reports & Visualization]
+    G --> H[React Dashboard]
 ```
 
 ---
 
 # 🧠 ML Strategy
 
-## 1️⃣ Supervised Learning
+## 1️⃣ Supervised Learning (Implemented)
 Used for known attack detection and traffic classification.
 
-Planned Models:
-- Random Forest
-- XGBoost
-- Logistic Regression
-- Deep Neural Networks
+**Model:** Random Forest Classifier (Robust against noise, high accuracy).
 
----
-
-## 2️⃣ Unsupervised Learning
+## 2️⃣ Unsupervised Learning (Implemented)
 Used for anomaly detection and unknown attack discovery.
 
-Planned Models:
-- Isolation Forest
-- One-Class SVM
-- Autoencoder
-- Local Outlier Factor (LOF)
+**Model:** Isolation Forest (Efficient outlier detection).
 
----
-
-## 3️⃣ Hybrid Decision Engine
+## 3️⃣ Hybrid Decision Engine (Implemented)
 
 Combines:
 - Supervised probability score
 - Unsupervised anomaly score
-- Configurable risk thresholds
-
-Final Output:
-- Normal
-- Suspicious
-- Malicious
-- Critical
+- Configurable risk thresholds (Critical, High, Medium, Low)
 
 ---
 
 # 📂 Repository Structure
 
 ```
-Network-Traffic-Classification/
+nal/
 │
-├── data/
-│   ├── raw/
-│   ├── external/
-│   ├── interim/
-│   └── processed/
+├── backend/                # FastAPI Application
+│   ├── app/
+│   │   ├── services/       # Decision Engine & Logic
+│   │   └── main.py         # API Endpoints
 │
-├── src/
-│   ├── data_collection/
-│   ├── preprocessing/
-│   ├── feature_engineering/
-│   ├── models/
-│   ├── decision_engine/
-│   ├── pipelines/
-│   ├── evaluation/
-│   └── visualization/
+├── frontend/               # React + Vite Dashboard
+│   ├── src/
+│   │   ├── components/     # Charts & Stats
+│   │   └── pages/          # Dashboard & Upload
 │
-├── configs/
-├── artifacts/
-├── notebooks/
-├── results/
-├── docs/
-└── security/
+├── core/                   # Shared Modules
+│   └── feature_engineering.py  # Preprocessing & Scaling
+│
+├── training_pipeline/      # ML Training Logic
+│   ├── data/               # Raw & Processed Data
+│   ├── models/             # Saved Models (.pkl)
+│   └── train.py            # Main Training Script
 ```
 
 ---
 
-# 🔬 Data Pipeline
-
-```mermaid
-flowchart TD
-    A[data/raw PCAPs] --> B[Flow Extraction]
-    B --> C[data/interim/flows]
-    C --> D[Cleaning & Validation]
-    D --> E[data/interim/cleaned_flows]
-    E --> F[Feature Engineering]
-    F --> G[data/processed/feature_vectors]
-    G --> H[Train / Validation Split]
-    H --> I[Model Training]
-    I --> J[Artifacts & Reports]
-```
-
----
-
-# 🛡 Security (SBOM + Vulnerability Scanning)
-
-This project integrates secure software supply chain practices.
-
-## Generate SBOM
+# ⚙️ Installation & Setup
 
 ```bash
-syft requirements.txt -o cyclonedx-json > security/sbom.json
-```
+# Clone Repository
+git clone <repo_url>
+cd Network/nal
 
-## Scan for Vulnerabilities
-
-```bash
-grype sbom:security/sbom.json
-```
-
-Ensures:
-- Dependency transparency
-- CVE detection
-- Secure research deployment
-
----
-
-# ⚙️ Installation
-
-```bash
-git clone https://github.com/your-username/network-traffic-classification.git
-cd network-traffic-classification
-
-python -m venv .venv
+# Backend Setup
+python3 -m venv .venv
 source .venv/bin/activate
-
 pip install -r requirements.txt
+
+# Frontend Setup
+cd frontend
+npm install
 ```
 
 ---
 
-# 🚀 Running Pipelines
+# 🚀 Running the System
 
-Example supervised training:
+## 1. Train the Models
+Trains the ML models on data located in `training_pipeline/data/processed/cic_ids/flows`.
 
 ```bash
-python pipelines/train_supervised.py --config configs/supervised.yaml
+# From 'nal' directory
+.venv/bin/python3 training_pipeline/train.py
 ```
 
-Example anomaly detection:
+## 2. Start the Backend
+Runs the FastAPI server (API & Decision Engine).
 
 ```bash
-python pipelines/train_unsupervised.py --config configs/unsupervised.yaml
+# From 'nal' directory
+source .venv/bin/activate
+uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Hybrid decision engine:
+## 3. Start the Frontend
+Runs the React Dashboard.
 
 ```bash
-python pipelines/run_hybrid.py --config configs/hybrid.yaml
+# From 'nal/frontend' directory
+npm run dev
 ```
 
 ---
 
-# 📊 Evaluation Metrics
+# 📊 Features
 
-Supervised:
-- Accuracy
-- Precision
-- Recall
-- F1-score
-- ROC-AUC
-
-Unsupervised:
-- ROC-AUC
-- PR-AUC
-- Anomaly Score Distribution
-- Detection Rate
-
----
-
-# 📈 Results & Reporting
-
-Outputs stored in:
-
-```
-results/
-├── figures/
-├── metrics/
-└── reports/
-```
-
-Includes:
-- Confusion matrices
-- ROC curves
-- Feature importance plots
-- Anomaly score distributions
-
----
-
-# 📘 Documentation
-
-All documentation stored in:
-
-```
-docs/
-├── dataset_notes.md
-├── experiment_log.md
-└── feature_description.md
-```
-
-Tracks:
-- Dataset provenance
-- Feature definitions
-- Experiment configurations
-- Model comparison logs
-
----
-
-# 🎯 Project Goals
-
-- Build adaptive ML-driven network defense
-- Detect known and unknown threats
-- Provide explainable decision logic
-- Ensure secure software practices
-- Enable reproducible research
+- **Real Data Integration**: Dashboard loads actual training data samples on startup.
+- **File Upload**: Support for `.pcap` and `.csv` uploads for real-time analysis.
+- **Hybrid Security Scoring**: automatic risk assessment based on ML confidence and anomaly scores.
+- **Interactive Dashboard**: Visualizes Traffic Flows, Attack Distribution, and Anomalies.
 
 ---
 
 # 🔮 Future Enhancements
 
-- Real-time streaming classification
-- REST API deployment
-- Dashboard interface
-- Automated CI/CD security scanning
-- Model drift monitoring
-- Explainable AI (SHAP integration)
-
----
-
-# 👨‍💻 Author
-
-Network Security Research Project  
-ITC / NAL Aligned ML Framework
-
----
-
+- Database Integration (PostgreSQL) for persistent history.
+- Real-time packet capture streaming.
+- Model Drift Monitoring.
