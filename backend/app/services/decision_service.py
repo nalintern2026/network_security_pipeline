@@ -47,26 +47,46 @@ class DecisionEngine:
 
     def _load_models(self):
         """Load trained models and artifacts from disk."""
+        logger.info("Loading models...")
+        
+        # Supervised Model
         try:
-            logger.info("Loading models...")
             with open(SUPERVISED_MODEL_PATH, 'rb') as f:
                 self.rf_model = pickle.load(f)
+        except FileNotFoundError:
+            logger.warning(f"Supervised model not found at {SUPERVISED_MODEL_PATH}. Skipping.")
+        except Exception as e:
+            logger.error(f"Error loading supervised model: {e}")
+
+        # Unsupervised Model
+        try:
             with open(UNSUPERVISED_MODEL_PATH, 'rb') as f:
                 self.if_model = pickle.load(f)
-            with open(SCALER_PATH, 'rb') as f:
-                self.scaler = pickle.load(f)
-            with open(LABEL_ENCODER_PATH, 'rb') as f:
-                self.label_encoder = pickle.load(f)
+        except FileNotFoundError:
+            logger.warning(f"Unsupervised model not found at {UNSUPERVISED_MODEL_PATH}. Skipping.")
+        except Exception as e:
+            logger.error(f"Error loading unsupervised model: {e}")
+
+        # Artifacts
+        try:
+            if SCALER_PATH.exists():
+                with open(SCALER_PATH, 'rb') as f:
+                    self.scaler = pickle.load(f)
+            else:
+                logger.warning("Scaler artifact not found.")
+
+            if LABEL_ENCODER_PATH.exists():
+                with open(LABEL_ENCODER_PATH, 'rb') as f:
+                    self.label_encoder = pickle.load(f)
+            
             if FEATURE_NAMES_PATH.exists():
                 with open(FEATURE_NAMES_PATH, 'rb') as f:
                     self.feature_names = pickle.load(f)
+            
             logger.info("Models loaded successfully.")
-        except FileNotFoundError as e:
-            logger.error(f"Model file not found: {e}. Ensure training pipeline has run.")
-            # In production, we might want to raise an error or fallback to dummy mode
-            # For now, we'll just log it.
         except Exception as e:
-            logger.error(f"Error loading models: {e}")
+            logger.error(f"Error loading artifacts: {e}")
+
 
     def analyze_file(self, file_path: str, file_type: str) -> dict:
         """
