@@ -17,20 +17,23 @@ ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarEle
 export default function ModelPerformance() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [activeModel, setActiveModel] = useState('xgboost');
+    const [activeModel, setActiveModel] = useState('random_forest');
+
+    const fetchModelMetrics = async () => {
+        setLoading(true);
+        try {
+            const { data: d } = await getModelMetrics();
+            setData(d);
+        } catch (err) {
+            console.error('Failed to fetch model metrics:', err);
+            setData(null);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        const fetch = async () => {
-            try {
-                const { data: d } = await getModelMetrics();
-                setData(d);
-            } catch (err) {
-                console.error('Failed to fetch model metrics:', err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetch();
+        fetchModelMetrics();
     }, []);
 
     if (loading) {
@@ -45,13 +48,29 @@ export default function ModelPerformance() {
         return (
             <div className="flex flex-col items-center justify-center h-96">
                 <BarChart3 size={48} className="text-red-400 mb-4" />
-                <p className="text-slate-400">Failed to load model metrics</p>
+                <p className="text-slate-400 mb-4">Failed to load model metrics. Start the backend or retry.</p>
+                <button
+                    onClick={fetchModelMetrics}
+                    className="px-4 py-2 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-sm font-medium hover:bg-cyan-500/30 transition-colors"
+                >
+                    Retry
+                </button>
             </div>
         );
     }
 
-    const model = data.models[activeModel];
-    const info = data.training_info;
+    const modelKeys = data.models ? Object.keys(data.models) : [];
+    const model = data.models?.[activeModel] || (modelKeys[0] && data.models[modelKeys[0]]);
+    const info = data.training_info || {};
+
+    if (!model && modelKeys.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center h-96">
+                <BarChart3 size={48} className="text-slate-500 mb-4" />
+                <p className="text-slate-400">No model metrics available. Train models and restart the backend.</p>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">
@@ -68,7 +87,9 @@ export default function ModelPerformance() {
 
             {/* Model Selector */}
             <div className="flex gap-2">
-                {Object.entries(data.models).map(([key, m]) => (
+                {modelKeys.map((key) => {
+                    const m = data.models[key];
+                    return (
                     <button
                         key={key}
                         onClick={() => setActiveModel(key)}
@@ -77,9 +98,10 @@ export default function ModelPerformance() {
                                 : 'bg-dark-700 text-slate-400 border border-white/5 hover:text-white hover:border-white/10'
                             }`}
                     >
-                        {m.name}
+                        {m?.name ?? key}
                     </button>
-                ))}
+                    );
+                })}
             </div>
 
             {/* Metrics Cards */}
@@ -225,9 +247,9 @@ export default function ModelPerformance() {
                     <div className="space-y-4">
                         {[
                             { label: 'Dataset', value: info.dataset, icon: Database },
-                            { label: 'Total Samples', value: info.total_samples.toLocaleString(), icon: Layers },
-                            { label: 'Training Samples', value: info.training_samples.toLocaleString(), icon: GitBranch },
-                            { label: 'Test Samples', value: info.test_samples.toLocaleString(), icon: Target },
+                            { label: 'Total Samples', value: (info.total_samples ?? 0).toLocaleString(), icon: Layers },
+                            { label: 'Training Samples', value: (info.training_samples ?? 0).toLocaleString(), icon: GitBranch },
+                            { label: 'Test Samples', value: (info.test_samples ?? 0).toLocaleString(), icon: Target },
                             { label: 'Features', value: info.feature_count, icon: Crosshair },
                             { label: 'Last Trained', value: new Date(info.last_trained).toLocaleDateString(), icon: Clock },
                         ].map((item) => (

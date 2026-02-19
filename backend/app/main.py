@@ -15,7 +15,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 app = FastAPI(
     title="Network Security Intelligence API",
@@ -152,9 +152,14 @@ def generate_demo_flows(count: int = 200) -> List[Dict[str, Any]]:
     return flows
 
 def load_real_data_sample(limit: int = 500) -> List[Dict[str, Any]]:
-    """Load a sample of real data from the processed folder."""
-    base_path = Path(__file__).parent.parent.parent / "training_pipeline" / "data" / "processed" / "cic_ids" / "flows"
-    csv_files = list(base_path.rglob("*.csv"))
+    """Load a sample of real data from processed folder, or raw/cic_ids (e.g. after synthetic generation)."""
+    project_root = Path(__file__).parent.parent.parent
+    processed_path = project_root / "training_pipeline" / "data" / "processed" / "cic_ids" / "flows"
+    raw_path = project_root / "training_pipeline" / "data" / "raw" / "cic_ids"
+    
+    csv_files = list(processed_path.rglob("*.csv")) if processed_path.exists() else []
+    if not csv_files and raw_path.exists():
+        csv_files = list(raw_path.glob("*.csv"))
     
     if not csv_files:
         print("No real data files found. Using demo data.")
@@ -399,19 +404,33 @@ def _count_field_filtered(field: str, is_anomaly: bool) -> Dict[str, int]:
 
 
 # ── Model Performance ────────────────────────────────────────────────────
+def _load_training_metrics() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Load metrics from training_pipeline/models/metrics.json if present; else use fallback."""
+    metrics_path = Path(__file__).parent.parent.parent / "training_pipeline" / "models" / "metrics.json"
+    if metrics_path.exists():
+        try:
+            with open(metrics_path, "r") as f:
+                data = json.load(f)
+            models = {**MODEL_METRICS, **data.get("models", {})}
+            training_info = data.get("training_info", {})
+            return models, training_info
+        except Exception as e:
+            print(f"Could not load metrics.json: {e}")
+    training_info = {
+        "dataset": "CIC-IDS + UNSW-NB15",
+        "total_samples": 225745,
+        "training_samples": 180596,
+        "test_samples": 45149,
+        "feature_count": 78,
+        "last_trained": (datetime.now() - timedelta(days=2)).isoformat(),
+    }
+    return MODEL_METRICS, training_info
+
+
 @app.get("/api/models/metrics")
 async def model_metrics():
-    return {
-        "models": MODEL_METRICS,
-        "training_info": {
-            "dataset": "CIC-IDS + UNSW-NB15",
-            "total_samples": 225745,
-            "training_samples": 180596,
-            "test_samples": 45149,
-            "feature_count": 78,
-            "last_trained": (datetime.now() - timedelta(days=2)).isoformat(),
-        },
-    }
+    models, training_info = _load_training_metrics()
+    return {"models": models, "training_info": training_info}
 
 
 # ── File Upload ──────────────────────────────────────────────────────────

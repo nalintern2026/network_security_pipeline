@@ -4,6 +4,8 @@ Orchestrates data loading, preprocessing, model training (supervised & unsupervi
 """
 import sys
 import pickle
+import json
+from datetime import datetime
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -63,7 +65,7 @@ def get_training_data():
 
 
 def train_supervised(X_train, y_train, X_test, y_test, label_encoder):
-    """Train Random Forest Classifier."""
+    """Train Random Forest Classifier. Returns metrics dict for API."""
     logger.info("Training Supervised Model (Random Forest)...")
     
     # Initialize Model
@@ -82,6 +84,20 @@ def train_supervised(X_train, y_train, X_test, y_test, label_encoder):
     with open(SUPERVISED_MODEL_PATH, 'wb') as f:
         pickle.dump(rf, f)
     logger.info(f"Supervised model saved to {SUPERVISED_MODEL_PATH}")
+
+    # Build metrics for API (Model Performance page)
+    report = classification_report(y_test, y_pred, target_names=label_encoder.classes_, output_dict=True)
+    cm = confusion_matrix(y_test, y_pred)
+    return {
+        "name": "Random Forest",
+        "accuracy": float(report["accuracy"]),
+        "precision": float(report["macro avg"]["precision"]),
+        "recall": float(report["macro avg"]["recall"]),
+        "f1_score": float(report["macro avg"]["f1-score"]),
+        "confusion_matrix": cm.tolist(),
+        "classes": list(label_encoder.classes_),
+        "roc_auc": float(report["accuracy"]),  # RF has no ROC in this script; reuse accuracy as placeholder
+    }
 
 
 def train_unsupervised(X_train, y_train, label_encoder):
@@ -159,11 +175,36 @@ def main():
         y_train, y_test = None, None
     
     # 6. Train Models
+    supervised_metrics = None
     if y_train is not None:
-        train_supervised(X_train, y_train, X_test, y_test, label_encoder)
+        supervised_metrics = train_supervised(X_train, y_train, X_test, y_test, label_encoder)
     
     train_unsupervised(X_train, y_train, label_encoder)
-    
+
+    # 7. Save metrics for backend API (Model Performance page)
+    n_total = len(X)
+    n_train = len(X_train)
+    n_test = len(X_test)
+    training_info = {
+        "dataset": "CIC-IDS / synthetic",
+        "total_samples": n_total,
+        "training_samples": n_train,
+        "test_samples": n_test,
+        "feature_count": X.shape[1] if hasattr(X, 'shape') else 0,
+        "last_trained": datetime.now().isoformat(),
+    }
+    metrics_payload = {
+        "training_info": training_info,
+        "models": {},
+    }
+    if supervised_metrics:
+        metrics_payload["models"]["random_forest"] = supervised_metrics
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    metrics_path = MODELS_DIR / "metrics.json"
+    with open(metrics_path, "w") as f:
+        json.dump(metrics_payload, f, indent=2)
+    logger.info(f"Metrics saved to {metrics_path}")
+
     logger.info("Training Pipeline Completed.")
 
 

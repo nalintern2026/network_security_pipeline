@@ -15,6 +15,7 @@ export default function TrafficAnalysis() {
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     const [filters, setFilters] = useState({
         classification: '',
         risk_level: '',
@@ -28,6 +29,7 @@ export default function TrafficAnalysis() {
 
     const fetchFlows = async () => {
         setLoading(true);
+        setError(null);
         try {
             const params = { page, per_page: 15 };
             if (filters.classification) params.classification = filters.classification;
@@ -36,11 +38,12 @@ export default function TrafficAnalysis() {
             if (filters.protocol) params.protocol = filters.protocol;
 
             const { data } = await getTrafficFlows(params);
-            setFlows(data.flows);
-            setTotal(data.total);
-            setTotalPages(data.total_pages);
+            setFlows(data.flows || []);
+            setTotal(data.total ?? 0);
+            setTotalPages(Math.max(1, data.total_pages ?? 1));
         } catch (err) {
             console.error('Failed to fetch flows:', err);
+            setError(err.response?.data?.detail || 'Cannot reach backend. Start the API to see traffic data.');
         } finally {
             setLoading(false);
         }
@@ -136,11 +139,30 @@ export default function TrafficAnalysis() {
                 </div>
             </div>
 
+            {/* Error */}
+            {error && (
+                <div className="glass-card p-4 border-red-500/20 flex items-center justify-between">
+                    <p className="text-sm text-red-300">{error}</p>
+                    <button
+                        onClick={() => { setError(null); fetchFlows(); }}
+                        className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 text-xs font-medium hover:bg-red-500/20 transition-colors"
+                    >
+                        Retry
+                    </button>
+                </div>
+            )}
+
             {/* Table */}
             <div className="glass-card overflow-hidden">
                 {loading ? (
                     <div className="flex items-center justify-center h-64">
                         <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                ) : flows.length === 0 && !error ? (
+                    <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+                        <Network size={40} className="mb-3 opacity-50" />
+                        <p className="text-sm">No flows to show</p>
+                        <p className="text-xs mt-1">Start the backend and load data, or upload a capture.</p>
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
@@ -168,14 +190,16 @@ export default function TrafficAnalysis() {
                                         </td>
                                         <td className="font-mono text-xs text-cyan-300">{flow.src_ip}</td>
                                         <td className="font-mono text-xs text-slate-300">{flow.dst_ip}</td>
-                                        <td className="font-mono text-xs text-slate-400">{flow.dst_port}</td>
+                                        <td className="font-mono text-xs text-slate-400">{flow.dst_port ?? '—'}</td>
                                         <td>
                                             <span className="px-2 py-0.5 rounded-md bg-dark-700 text-xs font-mono text-cyan-400 border border-white/5">
-                                                {flow.protocol}
+                                                {flow.protocol ?? '—'}
                                             </span>
                                         </td>
-                                        <td className="text-xs text-slate-400">{flow.duration}s</td>
-                                        <td className="text-xs text-slate-400 font-mono">{(flow.flow_bytes_per_sec / 1000).toFixed(1)}K</td>
+                                        <td className="text-xs text-slate-400">{flow.duration != null ? `${flow.duration}s` : '—'}</td>
+                                        <td className="text-xs text-slate-400 font-mono">
+                                            {flow.flow_bytes_per_sec != null ? (flow.flow_bytes_per_sec / 1000).toFixed(1) + 'K' : '—'}
+                                        </td>
                                         <td>
                                             <span className={`text-xs font-semibold ${flow.classification === 'Benign' ? 'text-green-400' : 'text-red-400'}`}>
                                                 {flow.classification}
@@ -186,20 +210,20 @@ export default function TrafficAnalysis() {
                                                 <div className="h-1.5 w-12 rounded-full bg-dark-700 overflow-hidden">
                                                     <div
                                                         className="h-full rounded-full bg-cyan-500"
-                                                        style={{ width: `${flow.confidence * 100}%` }}
+                                                        style={{ width: `${(flow.confidence ?? 0) * 100}%` }}
                                                     />
                                                 </div>
-                                                <span className="text-xs text-slate-400">{(flow.confidence * 100).toFixed(0)}%</span>
+                                                <span className="text-xs text-slate-400">{((flow.confidence ?? 0) * 100).toFixed(0)}%</span>
                                             </div>
                                         </td>
                                         <td>
-                                            <span className={`text-xs font-mono ${flow.anomaly_score > 0.7 ? 'text-red-400' : flow.anomaly_score > 0.4 ? 'text-yellow-400' : 'text-green-400'}`}>
-                                                {flow.anomaly_score.toFixed(2)}
+                                            <span className={`text-xs font-mono ${(flow.anomaly_score ?? 0) > 0.7 ? 'text-red-400' : (flow.anomaly_score ?? 0) > 0.4 ? 'text-yellow-400' : 'text-green-400'}`}>
+                                                {(flow.anomaly_score ?? 0).toFixed(2)}
                                             </span>
                                         </td>
                                         <td>
-                                            <span className={`px-2 py-0.5 rounded-md text-xs font-medium badge-${flow.risk_level.toLowerCase()}`}>
-                                                {flow.risk_level}
+                                            <span className={`px-2 py-0.5 rounded-md text-xs font-medium badge-${(flow.risk_level || 'low').toLowerCase()}`}>
+                                                {flow.risk_level ?? '—'}
                                             </span>
                                         </td>
                                     </tr>
@@ -210,6 +234,7 @@ export default function TrafficAnalysis() {
                 )}
 
                 {/* Pagination */}
+                {flows.length > 0 && (
                 <div className="flex items-center justify-between px-4 py-3 border-t border-white/5">
                     <p className="text-xs text-slate-400">
                         Showing {((page - 1) * 15) + 1}–{Math.min(page * 15, total)} of {total}
@@ -234,6 +259,7 @@ export default function TrafficAnalysis() {
                         </button>
                     </div>
                 </div>
+                )}
             </div>
         </div>
     );

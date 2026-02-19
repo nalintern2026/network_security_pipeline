@@ -18,21 +18,27 @@ export default function SBOMSecurity() {
     const [sbom, setSbom] = useState(null);
     const [vulns, setVulns] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState({ sbom: null, vulns: null });
     const [activeTab, setActiveTab] = useState('overview');
 
+    const fetchSecurity = async () => {
+        setLoading(true);
+        setError({ sbom: null, vulns: null });
+        try {
+            const [sbomResult, vulnResult] = await Promise.allSettled([getSBOM(), getVulnerabilities()]);
+            if (sbomResult.status === 'fulfilled') setSbom(sbomResult.value.data);
+            else setError((e) => ({ ...e, sbom: sbomResult.reason?.message || 'SBOM unavailable' }));
+            if (vulnResult.status === 'fulfilled') setVulns(vulnResult.value.data);
+            else setError((e) => ({ ...e, vulns: vulnResult.reason?.message || 'Vulnerabilities unavailable' }));
+        } catch (err) {
+            console.error('Failed to fetch security data:', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
-        const fetch = async () => {
-            try {
-                const [sbomRes, vulnRes] = await Promise.all([getSBOM(), getVulnerabilities()]);
-                setSbom(sbomRes.data);
-                setVulns(vulnRes.data);
-            } catch (err) {
-                console.error('Failed to fetch security data:', err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetch();
+        fetchSecurity();
     }, []);
 
     if (loading) {
@@ -63,6 +69,15 @@ export default function SBOMSecurity() {
                         Software Bill of Materials and vulnerability analysis
                     </p>
                 </div>
+                <div className="flex items-center gap-2">
+                    {(error.sbom || error.vulns) && (
+                        <button
+                            onClick={fetchSecurity}
+                            className="px-3 py-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-xs font-medium hover:bg-cyan-500/20 transition-colors"
+                        >
+                            Retry
+                        </button>
+                    )}
                 <a
                     href={downloadSBOM()}
                     target="_blank"
@@ -72,7 +87,19 @@ export default function SBOMSecurity() {
                     <Download size={14} />
                     Download SBOM
                 </a>
+                </div>
             </div>
+
+            {(error.sbom || error.vulns) && (
+                <div className="glass-card p-3 border-amber-500/20 flex items-center gap-3">
+                    <AlertTriangle size={18} className="text-amber-400 shrink-0" />
+                    <div className="text-sm text-slate-300">
+                        {error.sbom && <span>SBOM: {error.sbom}. </span>}
+                        {error.vulns && <span>Vulnerabilities: {error.vulns}. </span>}
+                        Start the backend or add security/sbom.json for full data.
+                    </div>
+                </div>
+            )}
 
             {/* KPIs */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

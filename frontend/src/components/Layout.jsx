@@ -28,17 +28,18 @@ export default function Layout({ children }) {
     const [apiStatus, setApiStatus] = useState('checking');
     const location = useLocation();
 
+    const checkApi = async () => {
+        try {
+            await checkHealth();
+            setApiStatus('connected');
+        } catch {
+            setApiStatus('disconnected');
+        }
+    };
+
     useEffect(() => {
-        const check = async () => {
-            try {
-                await checkHealth();
-                setApiStatus('connected');
-            } catch {
-                setApiStatus('disconnected');
-            }
-        };
-        check();
-        const interval = setInterval(check, 30000);
+        checkApi();
+        const interval = setInterval(checkApi, 30000);
         return () => clearInterval(interval);
     }, []);
 
@@ -120,11 +121,17 @@ export default function Layout({ children }) {
                                 )}
                             </div>
                             {sidebarOpen && (
-                                <div className="animate-fade-in">
+                                <div className="animate-fade-in flex flex-col gap-0.5">
                                     <p className="text-xs font-medium text-slate-300">
                                         {apiStatus === 'connected' ? 'API Connected' : apiStatus === 'disconnected' ? 'API Offline' : 'Checking...'}
                                     </p>
-                                    <p className="text-[10px] text-slate-500">localhost:8000</p>
+                                    <p className="text-[10px] text-slate-500">
+                                        {apiStatus === 'disconnected' ? (
+                                            <button type="button" onClick={checkApi} className="text-cyan-400 hover:underline">Retry</button>
+                                        ) : (
+                                            import.meta.env.VITE_API_URL ? new URL(import.meta.env.VITE_API_URL).origin : 'localhost:8000'
+                                        )}
+                                    </p>
                                 </div>
                             )}
                         </div>

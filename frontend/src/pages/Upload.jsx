@@ -166,16 +166,16 @@ export default function Upload() {
 
                         {/* Result KPIs */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-                            <ResultKPI label="Total Flows" value={result.total_flows} icon={FileText} />
-                            <ResultKPI label="Anomalies" value={result.anomaly_count} icon={AlertTriangle} />
-                            <ResultKPI label="Avg Risk" value={`${Math.round(result.avg_risk_score * 100)}%`} icon={Shield} />
-                            <ResultKPI label="File Size" value={formatSize(result.file_size)} icon={FileUp} />
+                            <ResultKPI label="Total Flows" value={result.total_flows ?? 0} icon={FileText} />
+                            <ResultKPI label="Anomalies" value={result.anomaly_count ?? 0} icon={AlertTriangle} />
+                            <ResultKPI label="Avg Risk" value={`${Math.round((result.avg_risk_score ?? 0) * 100)}%`} icon={Shield} />
+                            {result.file_size != null && <ResultKPI label="File Size" value={formatSize(result.file_size)} icon={FileUp} />}
                         </div>
 
                         {/* Attack Breakdown */}
                         <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Attack Distribution</h4>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
-                            {Object.entries(result.attack_distribution).map(([type, count]) => (
+                            {Object.entries(result.attack_distribution || {}).map(([type, count]) => (
                                 <div key={type} className="p-3 rounded-xl bg-dark-800/50 border border-white/5">
                                     <p className="text-xs text-slate-400 mb-1">{type}</p>
                                     <p className="text-lg font-bold text-white">{count}</p>

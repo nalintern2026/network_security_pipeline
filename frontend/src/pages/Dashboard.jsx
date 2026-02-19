@@ -21,22 +21,25 @@ export default function Dashboard() {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
 
+    const fetchStats = async () => {
+        setLoading(true);
+        try {
+            const { data } = await getDashboardStats();
+            setStats(data);
+        } catch (err) {
+            console.error('Failed to fetch dashboard stats:', err);
+            setStats(null);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
-        const fetchStats = async () => {
-            try {
-                const { data } = await getDashboardStats();
-                setStats(data);
-            } catch (err) {
-                console.error('Failed to fetch dashboard stats:', err);
-            } finally {
-                setLoading(false);
-            }
-        };
         fetchStats();
     }, []);
 
     if (loading) return <LoadingSkeleton />;
-    if (!stats) return <ErrorState />;
+    if (!stats) return <ErrorState onRetry={fetchStats} />;
 
     const riskPercent = Math.round(stats.avg_risk_score * 100);
 
@@ -353,12 +356,20 @@ function LoadingSkeleton() {
     );
 }
 
-function ErrorState() {
+function ErrorState({ onRetry }) {
     return (
         <div className="flex flex-col items-center justify-center h-96">
             <AlertTriangle size={48} className="text-red-400 mb-4" />
             <h3 className="text-lg font-semibold text-white mb-2">Failed to Load Dashboard</h3>
-            <p className="text-sm text-slate-400">Make sure the backend API is running on localhost:8000</p>
+            <p className="text-sm text-slate-400 mb-4">Start the backend API to see live stats, or retry if it just came online.</p>
+            {onRetry && (
+                <button
+                    onClick={onRetry}
+                    className="px-4 py-2 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-sm font-medium hover:bg-cyan-500/30 transition-colors"
+                >
+                    Retry
+                </button>
+            )}
         </div>
     );
 }

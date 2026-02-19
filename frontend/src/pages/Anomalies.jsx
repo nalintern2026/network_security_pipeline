@@ -17,18 +17,21 @@ export default function Anomalies() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
 
+    const fetchAnomalies = async () => {
+        setLoading(true);
+        try {
+            const { data: d } = await getAnomalies();
+            setData(d);
+        } catch (err) {
+            console.error('Failed to fetch anomalies:', err);
+            setData(null);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
-        const fetch = async () => {
-            try {
-                const { data: d } = await getAnomalies();
-                setData(d);
-            } catch (err) {
-                console.error('Failed to fetch anomalies:', err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetch();
+        fetchAnomalies();
     }, []);
 
     if (loading) {
@@ -39,14 +42,22 @@ export default function Anomalies() {
         );
     }
 
-    if (!data) {
+    if (!data && !loading) {
         return (
             <div className="flex flex-col items-center justify-center h-96">
                 <AlertTriangle size={48} className="text-red-400 mb-4" />
-                <p className="text-slate-400">Failed to load anomaly data</p>
+                <p className="text-slate-400 mb-4">Failed to load anomaly data. Start the backend or retry.</p>
+                <button
+                    onClick={fetchAnomalies}
+                    className="px-4 py-2 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-sm font-medium hover:bg-cyan-500/30 transition-colors"
+                >
+                    Retry
+                </button>
             </div>
         );
     }
+
+    if (!data) return null;
 
     return (
         <div className="space-y-6">
@@ -191,7 +202,13 @@ export default function Anomalies() {
                             </tr>
                         </thead>
                         <tbody>
-                            {(data.top_anomalies || []).map((a, i) => (
+                            {(data.top_anomalies || []).length === 0 ? (
+                                <tr>
+                                    <td colSpan={7} className="text-center py-8 text-slate-400 text-sm">
+                                        No anomalies in current data. Upload a capture or wait for backend to load flow data.
+                                    </td>
+                                </tr>
+                            ) : (data.top_anomalies || []).map((a, i) => (
                                 <tr key={a.id}>
                                     <td className="font-mono text-cyan-400 text-xs">#{i + 1}</td>
                                     <td className="font-mono text-xs text-cyan-300">{a.src_ip}</td>
@@ -229,3 +246,4 @@ export default function Anomalies() {
         </div>
     );
 }
+
