@@ -20,6 +20,8 @@ export default function SBOMSecurity() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState({ sbom: null, vulns: null });
     const [activeTab, setActiveTab] = useState('overview');
+    const [selectedSeverityFilter, setSelectedSeverityFilter] = useState('');
+    const [hoveredSeverity, setHoveredSeverity] = useState('');
 
     const fetchSecurity = async () => {
         setLoading(true);
@@ -55,6 +57,21 @@ export default function SBOMSecurity() {
         Medium: { bg: '#8b5cf640', border: '#8b5cf6', text: 'text-purple-400', badge: 'badge-medium' },
         Low: { bg: '#10b98140', border: '#10b981', text: 'text-green-400', badge: 'badge-low' },
     };
+    const allVulns = vulns?.vulnerabilities || [];
+    const severityToVulnNames = allVulns.reduce((acc, v) => {
+        const sev = v?.severity || 'Unknown';
+        if (!acc[sev]) acc[sev] = [];
+        acc[sev].push(v?.id || v?.package || 'Unknown');
+        return acc;
+    }, {});
+    const hoveredNames = hoveredSeverity ? (severityToVulnNames[hoveredSeverity] || []) : [];
+    const filteredVulns = allVulns.filter((v) => {
+        if (!selectedSeverityFilter) return true;
+        if (selectedSeverityFilter === 'Critical/High') {
+            return v?.severity === 'Critical' || v?.severity === 'High';
+        }
+        return v?.severity === selectedSeverityFilter;
+    });
     const metadata = sbom?.metadata || {};
     const metadataComponent = metadata?.component || {};
     const metadataTools = metadata?.tools || [];
@@ -106,7 +123,14 @@ export default function SBOMSecurity() {
 
             {/* KPIs */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="glass-card p-4 bg-gradient-to-br from-cyan-500/10 to-cyan-500/5 border border-cyan-500/20 animate-slide-up">
+                <button
+                    type="button"
+                    onClick={() => {
+                        setActiveTab('components');
+                        setSelectedSeverityFilter('');
+                    }}
+                    className="glass-card p-4 bg-gradient-to-br from-cyan-500/10 to-cyan-500/5 border border-cyan-500/20 animate-slide-up text-left hover:border-cyan-400/40 transition-colors"
+                >
                     <div className="flex items-center gap-3">
                         <Package size={18} className="text-cyan-400" />
                         <div>
@@ -114,8 +138,15 @@ export default function SBOMSecurity() {
                             <p className="text-2xl font-bold text-white">{sbom?.total_components || 0}</p>
                         </div>
                     </div>
-                </div>
-                <div className="glass-card p-4 bg-gradient-to-br from-red-500/10 to-red-500/5 border border-red-500/20 animate-slide-up">
+                </button>
+                <button
+                    type="button"
+                    onClick={() => {
+                        setActiveTab('vulnerabilities');
+                        setSelectedSeverityFilter('');
+                    }}
+                    className="glass-card p-4 bg-gradient-to-br from-red-500/10 to-red-500/5 border border-red-500/20 animate-slide-up text-left hover:border-red-400/40 transition-colors"
+                >
                     <div className="flex items-center gap-3">
                         <Bug size={18} className="text-red-400" />
                         <div>
@@ -123,8 +154,15 @@ export default function SBOMSecurity() {
                             <p className="text-2xl font-bold text-white">{vulns?.total_vulnerabilities || 0}</p>
                         </div>
                     </div>
-                </div>
-                <div className="glass-card p-4 bg-gradient-to-br from-orange-500/10 to-orange-500/5 border border-orange-500/20 animate-slide-up">
+                </button>
+                <button
+                    type="button"
+                    onClick={() => {
+                        setActiveTab('vulnerabilities');
+                        setSelectedSeverityFilter('Critical/High');
+                    }}
+                    className="glass-card p-4 bg-gradient-to-br from-orange-500/10 to-orange-500/5 border border-orange-500/20 animate-slide-up text-left hover:border-orange-400/40 transition-colors"
+                >
                     <div className="flex items-center gap-3">
                         <AlertTriangle size={18} className="text-orange-400" />
                         <div>
@@ -134,8 +172,15 @@ export default function SBOMSecurity() {
                             </p>
                         </div>
                     </div>
-                </div>
-                <div className="glass-card p-4 bg-gradient-to-br from-green-500/10 to-green-500/5 border border-green-500/20 animate-slide-up">
+                </button>
+                <button
+                    type="button"
+                    onClick={() => {
+                        setActiveTab('components');
+                        setSelectedSeverityFilter('');
+                    }}
+                    className="glass-card p-4 bg-gradient-to-br from-green-500/10 to-green-500/5 border border-green-500/20 animate-slide-up text-left hover:border-green-400/40 transition-colors"
+                >
                     <div className="flex items-center gap-3">
                         <CheckCircle2 size={18} className="text-green-400" />
                         <div>
@@ -143,7 +188,7 @@ export default function SBOMSecurity() {
                             <p className="text-lg font-bold text-white">{sbom?.format || 'CycloneDX'}</p>
                         </div>
                     </div>
-                </div>
+                </button>
             </div>
 
             {/* Tabs */}
@@ -185,7 +230,36 @@ export default function SBOMSecurity() {
                                     responsive: true,
                                     maintainAspectRatio: false,
                                     cutout: '60%',
+                                    onHover: (event, elements) => {
+                                        const target = event?.native?.target;
+                                        if (target) target.style.cursor = elements?.length ? 'pointer' : 'default';
+                                        if (elements?.length) {
+                                            const idx = elements[0].index;
+                                            const sev = Object.keys(vulns?.severity_distribution || {})[idx] || '';
+                                            setHoveredSeverity(sev);
+                                        } else {
+                                            setHoveredSeverity('');
+                                        }
+                                    },
+                                    onClick: (_event, elements) => {
+                                        if (!elements?.length) return;
+                                        const idx = elements[0].index;
+                                        const sev = Object.keys(vulns?.severity_distribution || {})[idx] || '';
+                                        if (!sev) return;
+                                        setActiveTab('vulnerabilities');
+                                        setSelectedSeverityFilter(sev);
+                                    },
                                     plugins: {
+                                        tooltip: {
+                                            callbacks: {
+                                                afterLabel: (ctx) => {
+                                                    const sev = ctx.label;
+                                                    const names = severityToVulnNames[sev] || [];
+                                                    if (!names.length) return 'No vulnerabilities';
+                                                    return `IDs: ${names.slice(0, 3).join(', ')}${names.length > 3 ? '...' : ''}`;
+                                                },
+                                            },
+                                        },
                                         legend: {
                                             position: 'right',
                                             labels: { color: '#94a3b8', font: { size: 11 }, padding: 8, usePointStyle: true, pointStyleWidth: 8 },
@@ -194,29 +268,55 @@ export default function SBOMSecurity() {
                                 }}
                             />
                         </div>
+                        <div className="h-6 mt-2">
+                            {hoveredSeverity && (
+                                <p className="text-sm text-slate-300 truncate">
+                                    {hoveredSeverity}: {hoveredNames.length ? hoveredNames.slice(0, 5).join(', ') : 'No vulnerabilities'}
+                                </p>
+                            )}
+                        </div>
                     </div>
 
                     {/* Severity Bars */}
                     <div className="glass-card p-5">
                         <h3 className="text-sm font-semibold text-slate-300 mb-4">Severity Breakdown</h3>
+                        <div className="h-5 mb-2">
+                            {hoveredSeverity && (
+                                <p className="text-sm text-slate-300 truncate">
+                                    {hoveredSeverity}: {hoveredNames.length ? hoveredNames.slice(0, 5).join(', ') : 'No vulnerabilities'}
+                                </p>
+                            )}
+                        </div>
                         <div className="space-y-4 mt-4">
                             {Object.entries(vulns?.severity_distribution || {}).map(([sev, count]) => {
                                 const total = vulns?.total_vulnerabilities || 1;
                                 const pct = Math.round((count / total) * 100);
                                 const sc = severityColors[sev];
+                                const names = severityToVulnNames[sev] || [];
                                 return (
-                                    <div key={sev}>
+                                    <button
+                                        key={sev}
+                                        type="button"
+                                        onMouseEnter={() => setHoveredSeverity(sev)}
+                                        onMouseLeave={() => setHoveredSeverity('')}
+                                        onClick={() => {
+                                            setActiveTab('vulnerabilities');
+                                            setSelectedSeverityFilter(sev);
+                                        }}
+                                        className="w-full text-left group"
+                                        title={names.length ? names.join(', ') : `No ${sev} vulnerabilities`}
+                                    >
                                         <div className="flex justify-between text-xs mb-1.5">
                                             <span className={`font-medium ${sc?.text}`}>{sev}</span>
                                             <span className="text-slate-400">{count} ({pct}%)</span>
                                         </div>
-                                        <div className="h-3 rounded-full bg-dark-700 overflow-hidden">
+                                        <div className="h-3 rounded-full bg-dark-700 overflow-hidden border border-transparent group-hover:border-white/10 transition-colors">
                                             <div
                                                 className="h-full rounded-full transition-all duration-1000"
                                                 style={{ width: `${pct}%`, backgroundColor: sc?.border }}
                                             />
                                         </div>
-                                    </div>
+                                    </button>
                                 );
                             })}
                         </div>
@@ -272,7 +372,22 @@ export default function SBOMSecurity() {
 
             {activeTab === 'vulnerabilities' && (
                 <div className="space-y-3 animate-fade-in">
-                    {(vulns?.vulnerabilities || []).map((v) => {
+                    <div className="flex items-center justify-between">
+                        <p className="text-xs text-slate-400">
+                            Showing {filteredVulns.length} vulnerabilities
+                            {selectedSeverityFilter ? ` (${selectedSeverityFilter})` : ''}
+                        </p>
+                        {selectedSeverityFilter && (
+                            <button
+                                type="button"
+                                onClick={() => setSelectedSeverityFilter('')}
+                                className="px-2 py-1 rounded-md text-xs text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/10 transition-colors"
+                            >
+                                Clear Filter
+                            </button>
+                        )}
+                    </div>
+                    {filteredVulns.map((v) => {
                         const sc = severityColors[v.severity];
                         return (
                             <div key={v.id} className={`glass-card p-4 border ${sc?.badge === 'badge-critical' ? 'border-red-500/20' : 'border-white/5'}`}>
