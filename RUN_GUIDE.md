@@ -44,7 +44,7 @@ docker compose down
 ### Backend
 1. Python 3.12+ required.
 2. `cd nal`
-3. `python -m venv .venv`
+3. `python3 -m venv .venv`
 4. `source .venv/bin/activate` (Linux/Mac) or `.venv\Scripts\activate` (Windows)
 5. `pip install -r requirements.txt`
 6. `uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload`
@@ -56,7 +56,11 @@ docker compose down
 4. `npm run dev`
 
 
+cd nal/backend
 
 source .venv/bin/activate
 
-uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+uvicorn app.main:app --reload
+
+can you parse through datasets and tell which are the high or critical risk data? in the path i tell you? just return few file names and its path thats all 
+this is the path for the data nal/training_pipeline/data/processed/cic_ids/flows

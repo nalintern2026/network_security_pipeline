@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #0f0; }
+        div { margin: 10px 0; padding: 10px; background: #222; border-left: 3px solid #0f0; }
+        .error { border-left-color: #f00; color: #f00; }
+    </style>
+</head>
+<body>
+    <h1>Network Dashboard API Test</h1>
+    <div id="output"></div>
+    <script>
+        const output = document.getElementById('output');
+        
+        async function test() {
+            try {
+                output.innerHTML += '<div>Testing connection to http://localhost:8000/api/dashboard/stats...</div>';
+                
+                const response = await fetch('http://localhost:8000/api/dashboard/stats');
+                output.innerHTML += `<div>Status: ${response.status}</div>`;
+                
+                const data = await response.json();
+                output.innerHTML += `<div>Response received:<br>${JSON.stringify(data, null, 2)}</div>`;
+                output.innerHTML += `<div>✅ SUCCESS! Total flows: ${data.total_flows}</div>`;
+            } catch (err) {
+                output.innerHTML += `<div class="error">❌ ERROR: ${err.message}</div>`;
+            }
+        }
+        
+        test();
+    </script>
+</body>
+</html>

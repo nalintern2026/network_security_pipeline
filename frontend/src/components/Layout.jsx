@@ -27,6 +27,13 @@ export default function Layout({ children }) {
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [apiStatus, setApiStatus] = useState('checking');
     const location = useLocation();
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+    let apiHost = 'localhost:8000';
+    try {
+        apiHost = new URL(apiUrl).origin;
+    } catch {
+        apiHost = apiUrl;
+    }
 
     const checkApi = async () => {
         try {
@@ -129,7 +136,7 @@ export default function Layout({ children }) {
                                         {apiStatus === 'disconnected' ? (
                                             <button type="button" onClick={checkApi} className="text-cyan-400 hover:underline">Retry</button>
                                         ) : (
-                                            import.meta.env.VITE_API_URL ? new URL(import.meta.env.VITE_API_URL).origin : 'localhost:8000'
+                                            apiHost
                                         )}
                                     </p>
                                 </div>
@@ -162,6 +169,21 @@ export default function Layout({ children }) {
                         </div>
                     </div>
                 </header>
+
+                {apiStatus === 'disconnected' && (
+                    <div className="mx-6 mt-4 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 flex items-center justify-between gap-3">
+                        <p className="text-xs text-amber-200">
+                            Backend is offline. UI is still available; live data updates will resume when API is back.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={checkApi}
+                            className="px-3 py-1.5 rounded-lg text-xs font-medium border border-cyan-500/35 text-cyan-300 hover:bg-cyan-500/15 transition-colors"
+                        >
+                            Retry Connection
+                        </button>
+                    </div>
+                )}
 
                 {/* Page Content */}
                 <div className="p-6 animate-fade-in">

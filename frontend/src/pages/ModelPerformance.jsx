@@ -10,7 +10,7 @@ import {
     GitBranch,
 } from 'lucide-react';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, RadialLinearScale, PointElement, LineElement } from 'chart.js';
-import { Bar, Radar } from 'react-chartjs-2';
+import { Bar, Doughnut, Radar } from 'react-chartjs-2';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, RadialLinearScale, PointElement, LineElement);
 
@@ -62,12 +62,200 @@ export default function ModelPerformance() {
     const modelKeys = data.models ? Object.keys(data.models) : [];
     const model = data.models?.[activeModel] || (modelKeys[0] && data.models[modelKeys[0]]);
     const info = data.training_info || {};
+    const live = data.live_metrics || {};
+    const modelStatus = data.model_status || {};
+    const hasTrainingModels = modelKeys.length > 0;
+    const totalFlows = live.total_flows || 0;
+    const totalAnomalies = live.total_anomalies || 0;
+    const normalFlows = Math.max(0, totalFlows - totalAnomalies);
+    const riskDist = live.risk_distribution || {};
 
-    if (!model && modelKeys.length === 0) {
+    if (!hasTrainingModels) {
         return (
-            <div className="flex flex-col items-center justify-center h-96">
-                <BarChart3 size={48} className="text-slate-500 mb-4" />
-                <p className="text-slate-400">No model metrics available. Train models and restart the backend.</p>
+            <div className="space-y-6">
+                <div>
+                    <h1 className="text-xl font-bold text-white flex items-center gap-2">
+                        <BarChart3 size={20} className="text-cyan-400" />
+                        Model Performance
+                    </h1>
+                    <p className="text-xs text-slate-400 mt-1">
+                        Runtime metrics from actual uploaded flow data
+                    </p>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="glass-card p-4">
+                        <p className="text-xs text-slate-400">Total Flows</p>
+                        <p className="text-2xl font-bold text-white">{totalFlows.toLocaleString()}</p>
+                    </div>
+                    <div className="glass-card p-4">
+                        <p className="text-xs text-slate-400">Anomaly Rate</p>
+                        <p className="text-2xl font-bold text-red-400">{(live.anomaly_rate || 0).toFixed(2)}%</p>
+                    </div>
+                    <div className="glass-card p-4">
+                        <p className="text-xs text-slate-400">Avg Risk</p>
+                        <p className="text-2xl font-bold text-orange-400">{Math.round((live.avg_risk_score || 0) * 100)}%</p>
+                    </div>
+                    <div className="glass-card p-4">
+                        <p className="text-xs text-slate-400">Avg Confidence</p>
+                        <p className="text-2xl font-bold text-cyan-400">{Math.round((live.avg_confidence || 0) * 100)}%</p>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div className="glass-card p-5">
+                        <h3 className="text-sm font-semibold text-slate-300 mb-4">Traffic Health Split</h3>
+                        <div className="h-72 flex items-center justify-center">
+                            <Doughnut
+                                data={{
+                                    labels: ['Normal', 'Anomalies'],
+                                    datasets: [{
+                                        data: [normalFlows, totalAnomalies],
+                                        backgroundColor: ['#10b98140', '#ef444440'],
+                                        borderColor: ['#10b981', '#ef4444'],
+                                        borderWidth: 1,
+                                        spacing: 2,
+                                        borderRadius: 4,
+                                    }],
+                                }}
+                                options={{
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    cutout: '62%',
+                                    plugins: {
+                                        legend: {
+                                            position: 'right',
+                                            labels: { color: '#94a3b8', font: { size: 11 }, usePointStyle: true, pointStyleWidth: 8 },
+                                        },
+                                    },
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="glass-card p-5">
+                        <h3 className="text-sm font-semibold text-slate-300 mb-4">Risk Distribution</h3>
+                        <div className="h-72">
+                            <Bar
+                                data={{
+                                    labels: ['Low', 'Medium', 'High', 'Critical'],
+                                    datasets: [{
+                                        label: 'Flows',
+                                        data: [
+                                            riskDist.Low || 0,
+                                            riskDist.Medium || 0,
+                                            riskDist.High || 0,
+                                            riskDist.Critical || 0,
+                                        ],
+                                        backgroundColor: ['#10b98140', '#f59e0b40', '#fb923c40', '#ef444440'],
+                                        borderColor: ['#10b981', '#f59e0b', '#fb923c', '#ef4444'],
+                                        borderWidth: 1,
+                                        borderRadius: 6,
+                                    }],
+                                }}
+                                options={{
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    scales: {
+                                        x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11 } } },
+                                        y: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#64748b', font: { size: 10 } } },
+                                    },
+                                    plugins: { legend: { display: false } },
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div className="glass-card p-5">
+                        <h3 className="text-sm font-semibold text-slate-300 mb-4">Runtime Quality Metrics</h3>
+                        <div className="h-72">
+                            <Bar
+                                data={{
+                                    labels: ['Avg Confidence', 'Avg Risk', 'Anomaly Rate'],
+                                    datasets: [{
+                                        label: 'Percent',
+                                        data: [
+                                            (live.avg_confidence || 0) * 100,
+                                            (live.avg_risk_score || 0) * 100,
+                                            live.anomaly_rate || 0,
+                                        ],
+                                        backgroundColor: ['#00d4ff40', '#f59e0b40', '#ef444440'],
+                                        borderColor: ['#00d4ff', '#f59e0b', '#ef4444'],
+                                        borderWidth: 1,
+                                        borderRadius: 6,
+                                    }],
+                                }}
+                                options={{
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    scales: {
+                                        x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11 } } },
+                                        y: {
+                                            min: 0,
+                                            max: 100,
+                                            grid: { color: 'rgba(255,255,255,0.03)' },
+                                            ticks: { color: '#64748b', font: { size: 10 }, callback: (v) => `${v}%` },
+                                        },
+                                    },
+                                    plugins: { legend: { display: false } },
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="glass-card p-5">
+                        <h3 className="text-sm font-semibold text-slate-300 mb-4">Model Readiness</h3>
+                        <div className="h-72">
+                            <Radar
+                                data={{
+                                    labels: ['Supervised', 'Unsupervised', 'Scaler', 'Data Volume', 'Signal Quality'],
+                                    datasets: [{
+                                        label: 'Readiness',
+                                        data: [
+                                            modelStatus.supervised_loaded ? 1 : 0,
+                                            modelStatus.unsupervised_loaded ? 1 : 0,
+                                            modelStatus.scaler_loaded ? 1 : 0,
+                                            Math.min(1, totalFlows / 5000),
+                                            Math.max(0, 1 - ((live.anomaly_rate || 0) / 100)),
+                                        ],
+                                        borderColor: '#8b5cf6',
+                                        backgroundColor: 'rgba(139,92,246,0.12)',
+                                        borderWidth: 2,
+                                        pointRadius: 3,
+                                        pointBackgroundColor: '#8b5cf6',
+                                    }],
+                                }}
+                                options={{
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    scales: {
+                                        r: {
+                                            min: 0,
+                                            max: 1,
+                                            ticks: { color: '#64748b', font: { size: 9 }, backdropColor: 'transparent', stepSize: 0.2 },
+                                            pointLabels: { color: '#94a3b8', font: { size: 11 } },
+                                            grid: { color: 'rgba(255,255,255,0.05)' },
+                                            angleLines: { color: 'rgba(255,255,255,0.05)' },
+                                        },
+                                    },
+                                    plugins: { legend: { display: false } },
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="glass-card p-5">
+                    <h3 className="text-sm font-semibold text-slate-300 mb-4">Model Status</h3>
+                    <div className="space-y-2 text-sm">
+                        <p className="text-slate-300">Supervised loaded: <span className={modelStatus.supervised_loaded ? 'text-green-400' : 'text-red-400'}>{modelStatus.supervised_loaded ? 'Yes' : 'No'}</span></p>
+                        <p className="text-slate-300">Unsupervised loaded: <span className={modelStatus.unsupervised_loaded ? 'text-green-400' : 'text-red-400'}>{modelStatus.unsupervised_loaded ? 'Yes' : 'No'}</span></p>
+                        <p className="text-slate-300">Scaler loaded: <span className={modelStatus.scaler_loaded ? 'text-green-400' : 'text-red-400'}>{modelStatus.scaler_loaded ? 'Yes' : 'No'}</span></p>
+                        <p className="text-slate-500 text-xs mt-3">No offline training metrics file with model scores found.</p>
+                    </div>
+                </div>
             </div>
         );
     }

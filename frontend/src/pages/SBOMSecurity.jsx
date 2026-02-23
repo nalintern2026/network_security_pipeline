@@ -55,6 +55,9 @@ export default function SBOMSecurity() {
         Medium: { bg: '#8b5cf640', border: '#8b5cf6', text: 'text-purple-400', badge: 'badge-medium' },
         Low: { bg: '#10b98140', border: '#10b981', text: 'text-green-400', badge: 'badge-low' },
     };
+    const metadata = sbom?.metadata || {};
+    const metadataComponent = metadata?.component || {};
+    const metadataTools = metadata?.tools || [];
 
     return (
         <div className="space-y-6">
@@ -237,9 +240,11 @@ export default function SBOMSecurity() {
                             <thead>
                                 <tr>
                                     <th>#</th>
+                                    <th>BOM Ref</th>
                                     <th>Package Name</th>
                                     <th>Version</th>
                                     <th>Type</th>
+                                    <th>CPE</th>
                                     <th>PURL</th>
                                 </tr>
                             </thead>
@@ -247,6 +252,7 @@ export default function SBOMSecurity() {
                                 {(sbom?.components || []).map((comp, i) => (
                                     <tr key={i}>
                                         <td className="font-mono text-xs text-cyan-400">#{i + 1}</td>
+                                        <td className="text-xs text-slate-500 font-mono max-w-xs truncate">{comp.bom_ref || '—'}</td>
                                         <td className="font-medium text-white text-sm">{comp.name}</td>
                                         <td>
                                             <span className="px-2 py-0.5 rounded-md bg-dark-700 text-xs font-mono text-cyan-400 border border-white/5">
@@ -254,6 +260,7 @@ export default function SBOMSecurity() {
                                             </span>
                                         </td>
                                         <td className="text-xs text-slate-400 capitalize">{comp.type}</td>
+                                        <td className="text-xs text-slate-500 font-mono max-w-xs truncate">{comp.cpe || '—'}</td>
                                         <td className="text-xs text-slate-500 font-mono max-w-xs truncate">{comp.purl || '—'}</td>
                                     </tr>
                                 ))}
@@ -306,6 +313,97 @@ export default function SBOMSecurity() {
                     })}
                 </div>
             )}
+
+            {/* Full SBOM Details */}
+            <div className="glass-card p-5">
+                <h3 className="text-sm font-semibold text-slate-300 mb-4">SBOM JSON Details (Full)</h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+                    <div className="p-3 rounded-xl bg-dark-800/40 border border-white/5">
+                        <p className="text-xs text-slate-500 mb-1">Schema</p>
+                        <p className="text-xs text-slate-300 font-mono break-all">{sbom?.schema || '—'}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-dark-800/40 border border-white/5">
+                        <p className="text-xs text-slate-500 mb-1">Serial Number</p>
+                        <p className="text-xs text-slate-300 font-mono break-all">{sbom?.serial_number || '—'}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-dark-800/40 border border-white/5">
+                        <p className="text-xs text-slate-500 mb-1">Spec Version</p>
+                        <p className="text-xs text-slate-300 font-mono">{sbom?.spec_version || '—'}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-dark-800/40 border border-white/5">
+                        <p className="text-xs text-slate-500 mb-1">Document Version</p>
+                        <p className="text-xs text-slate-300 font-mono">{sbom?.document_version ?? '—'}</p>
+                    </div>
+                </div>
+
+                <div className="mb-5">
+                    <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Metadata</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="p-3 rounded-xl bg-dark-800/40 border border-white/5">
+                            <p className="text-xs text-slate-500 mb-1">Timestamp</p>
+                            <p className="text-xs text-slate-300 font-mono">{metadata?.timestamp || '—'}</p>
+                        </div>
+                        <div className="p-3 rounded-xl bg-dark-800/40 border border-white/5">
+                            <p className="text-xs text-slate-500 mb-1">Main Component</p>
+                            <p className="text-xs text-slate-300">
+                                {metadataComponent?.name || '—'} {metadataComponent?.version ? `(${metadataComponent.version})` : ''}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">{metadataComponent?.type || '—'}</p>
+                        </div>
+                    </div>
+                    {metadataTools.length > 0 && (
+                        <div className="mt-3 p-3 rounded-xl bg-dark-800/40 border border-white/5">
+                            <p className="text-xs text-slate-500 mb-2">Tools</p>
+                            <div className="space-y-1">
+                                {metadataTools.map((tool, idx) => (
+                                    <p key={`${tool.name || 'tool'}-${idx}`} className="text-xs text-slate-300 font-mono">
+                                        {tool.name || 'unknown'} {tool.version ? `v${tool.version}` : ''} {tool.author ? `(${tool.author})` : ''}
+                                    </p>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+                    Components ({sbom?.components?.length || 0})
+                </h4>
+                <div className="overflow-x-auto max-h-[32rem] overflow-y-auto border border-white/5 rounded-xl">
+                    <table className="w-full data-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Name</th>
+                                <th>Version</th>
+                                <th>Type</th>
+                                <th>BOM Ref</th>
+                                <th>CPE</th>
+                                <th>PURL</th>
+                                <th>Properties</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {(sbom?.components || []).map((comp, i) => (
+                                <tr key={`${comp.bom_ref || comp.name || 'comp'}-${i}`}>
+                                    <td className="font-mono text-xs text-cyan-400">#{i + 1}</td>
+                                    <td className="text-sm text-white">{comp.name || '—'}</td>
+                                    <td className="text-xs text-slate-300 font-mono">{comp.version || '—'}</td>
+                                    <td className="text-xs text-slate-400">{comp.type || '—'}</td>
+                                    <td className="text-xs text-slate-500 font-mono max-w-xs truncate">{comp.bom_ref || '—'}</td>
+                                    <td className="text-xs text-slate-500 font-mono max-w-xs truncate">{comp.cpe || '—'}</td>
+                                    <td className="text-xs text-slate-500 font-mono max-w-xs truncate">{comp.purl || '—'}</td>
+                                    <td className="text-xs text-slate-500">
+                                        {(comp.properties || []).length > 0
+                                            ? (comp.properties || []).map((p) => `${p.name}=${p.value}`).join(', ')
+                                            : '—'}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     );
 }

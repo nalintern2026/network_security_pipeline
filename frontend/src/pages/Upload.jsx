@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { uploadFile } from '../services/api';
+import { uploadFile, getUploadFlows } from '../services/api';
 import {
     Upload as UploadIcon,
     FileUp,
@@ -9,7 +9,10 @@ import {
     FileText,
     AlertTriangle,
     Shield,
+    ChevronDown,
+    ChevronUp,
 } from 'lucide-react';
+/* eslint-disable react/prop-types */
 
 export default function Upload() {
     const [file, setFile] = useState(null);
@@ -17,6 +20,14 @@ export default function Upload() {
     const [uploading, setUploading] = useState(false);
     const [result, setResult] = useState(null);
     const [error, setError] = useState(null);
+    const [expandedSection, setExpandedSection] = useState(null);
+    const [fileFlows, setFileFlows] = useState([]);
+    const [flowsPage, setFlowsPage] = useState(1);
+    const [hasMoreFlows, setHasMoreFlows] = useState(false);
+    const [loadingMoreFlows, setLoadingMoreFlows] = useState(false);
+    const [anomalyRowsVisible, setAnomalyRowsVisible] = useState(10);
+    const [riskRowsVisible, setRiskRowsVisible] = useState(10);
+    const [uploadFilter, setUploadFilter] = useState({ type: '', value: '' });
 
     const handleDrop = useCallback((e) => {
         e.preventDefault();
@@ -26,6 +37,13 @@ export default function Upload() {
             setFile(droppedFile);
             setResult(null);
             setError(null);
+            setExpandedSection(null);
+            setFileFlows([]);
+            setFlowsPage(1);
+            setHasMoreFlows(false);
+            setAnomalyRowsVisible(10);
+            setRiskRowsVisible(10);
+            setUploadFilter({ type: '', value: '' });
         }
     }, []);
 
@@ -35,6 +53,33 @@ export default function Upload() {
             setFile(selectedFile);
             setResult(null);
             setError(null);
+            setExpandedSection(null);
+            setFileFlows([]);
+            setFlowsPage(1);
+            setHasMoreFlows(false);
+            setAnomalyRowsVisible(10);
+            setRiskRowsVisible(10);
+            setUploadFilter({ type: '', value: '' });
+        }
+    };
+
+    const loadMoreFlows = async (analysisId, pageToLoad = 1, replace = false) => {
+        if (!analysisId) return;
+        setLoadingMoreFlows(true);
+        try {
+            const { data } = await getUploadFlows(analysisId, { page: pageToLoad, per_page: 200 });
+            setFileFlows((prev) => {
+                if (replace) return data.flows || [];
+                const existing = new Set(prev.map((f) => f.id));
+                const incoming = (data.flows || []).filter((f) => !existing.has(f.id));
+                return [...prev, ...incoming];
+            });
+            setFlowsPage((data.page || pageToLoad) + 1);
+            setHasMoreFlows(Boolean(data.has_more));
+        } catch {
+            setError('Failed to load full flow list for this upload.');
+        } finally {
+            setLoadingMoreFlows(false);
         }
     };
 
@@ -46,6 +91,14 @@ export default function Upload() {
         try {
             const { data } = await uploadFile(file);
             setResult(data);
+            setExpandedSection(null);
+            setFileFlows(data.sample_flows || []);
+            setFlowsPage(1);
+            setHasMoreFlows((data.total_flows || 0) > (data.sample_flows || []).length);
+            setAnomalyRowsVisible(10);
+            setRiskRowsVisible(10);
+            setUploadFilter({ type: '', value: '' });
+            await loadMoreFlows(data.id, 1, true);
         } catch (err) {
             setError(err.response?.data?.detail || 'Upload failed. Make sure the backend is running.');
         } finally {
@@ -57,6 +110,107 @@ export default function Upload() {
         if (bytes < 1024) return bytes + ' B';
         if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
         return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    };
+
+    const renderRows = (rows = []) => {
+        if (!rows.length) {
+            return <p className="text-xs text-slate-400">No detailed rows found for this section.</p>;
+        }
+
+        return (
+            <div className="overflow-x-auto">
+                <table className="w-full data-table">
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            <th>Source IP</th>
+                            <th>Dest IP</th>
+                            <th>Protocol</th>
+                            <th>Anomaly</th>
+                            <th>Risk</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows.map((row) => (
+                            <tr key={`${row.id}-${row.classification || row.src_ip}`}>
+                                <td className="text-xs text-slate-200">{row.classification || '—'}</td>
+                                <td className="font-mono text-xs">{row.src_ip || '—'}</td>
+                                <td className="font-mono text-xs">{row.dst_ip || '—'}</td>
+                                <td className="text-xs text-cyan-300">{row.protocol || '—'}</td>
+                                <td className="text-xs text-amber-300">{Math.round((row.anomaly_score || 0) * 100)}%</td>
+                                <td>
+                                    <span className={`px-2 py-0.5 rounded-md text-xs font-medium badge-${(row.risk_level || 'low').toLowerCase()}`}>
+                                        {row.risk_level || 'Low'} ({Math.round((row.risk_score || 0) * 100)}%)
+                                    </span>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        );
+    };
+
+    const anomalyRows = [...fileFlows]
+        .filter((row) => row?.is_anomaly || String(row?.classification || '').toUpperCase() !== 'BENIGN')
+        .sort((a, b) => (b?.anomaly_score || 0) - (a?.anomaly_score || 0));
+
+    const riskRows = [...fileFlows]
+        .sort((a, b) => (b?.risk_score || 0) - (a?.risk_score || 0));
+
+    const filteredFileFlows = fileFlows.filter((row) => {
+        if (!uploadFilter.type || !uploadFilter.value) return true;
+        if (uploadFilter.type === 'risk') {
+            return String(row?.risk_level || '').toLowerCase() === String(uploadFilter.value).toLowerCase();
+        }
+        if (uploadFilter.type === 'classification') {
+            return String(row?.classification || '').toLowerCase() === String(uploadFilter.value).toLowerCase();
+        }
+        return true;
+    });
+
+    const filteredAnomalyRows = anomalyRows.filter((row) => {
+        if (!uploadFilter.type || !uploadFilter.value) return true;
+        if (uploadFilter.type === 'risk') {
+            return String(row?.risk_level || '').toLowerCase() === String(uploadFilter.value).toLowerCase();
+        }
+        if (uploadFilter.type === 'classification') {
+            return String(row?.classification || '').toLowerCase() === String(uploadFilter.value).toLowerCase();
+        }
+        return true;
+    });
+
+    const filteredRiskRows = riskRows.filter((row) => {
+        if (!uploadFilter.type || !uploadFilter.value) return true;
+        if (uploadFilter.type === 'risk') {
+            return String(row?.risk_level || '').toLowerCase() === String(uploadFilter.value).toLowerCase();
+        }
+        if (uploadFilter.type === 'classification') {
+            return String(row?.classification || '').toLowerCase() === String(uploadFilter.value).toLowerCase();
+        }
+        return true;
+    });
+
+    const handleViewMoreAnomalies = async () => {
+        if (anomalyRowsVisible < anomalyRows.length) {
+            setAnomalyRowsVisible((prev) => prev + 10);
+            return;
+        }
+        if (hasMoreFlows && result?.id) {
+            await loadMoreFlows(result.id, flowsPage, false);
+            setAnomalyRowsVisible((prev) => prev + 10);
+        }
+    };
+
+    const handleViewMoreRisk = async () => {
+        if (riskRowsVisible < riskRows.length) {
+            setRiskRowsVisible((prev) => prev + 10);
+            return;
+        }
+        if (hasMoreFlows && result?.id) {
+            await loadMoreFlows(result.id, flowsPage, false);
+            setRiskRowsVisible((prev) => prev + 10);
+        }
     };
 
     return (
@@ -118,7 +272,18 @@ export default function Upload() {
                         </div>
                         <div className="flex items-center gap-3">
                             <button
-                                onClick={() => { setFile(null); setResult(null); setError(null); }}
+                                onClick={() => {
+                                    setFile(null);
+                                    setResult(null);
+                                    setError(null);
+                                    setExpandedSection(null);
+                                    setFileFlows([]);
+                                    setFlowsPage(1);
+                                    setHasMoreFlows(false);
+                                    setAnomalyRowsVisible(10);
+                                    setRiskRowsVisible(10);
+                                    setUploadFilter({ type: '', value: '' });
+                                }}
                                 className="text-xs text-slate-400 hover:text-red-400 transition-colors"
                             >
                                 Remove
@@ -166,28 +331,163 @@ export default function Upload() {
 
                         {/* Result KPIs */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-                            <ResultKPI label="Total Flows" value={result.total_flows ?? 0} icon={FileText} />
-                            <ResultKPI label="Anomalies" value={result.anomaly_count ?? 0} icon={AlertTriangle} />
-                            <ResultKPI label="Avg Risk" value={`${Math.round((result.avg_risk_score ?? 0) * 100)}%`} icon={Shield} />
+                            <ResultKPI
+                                label="Total Flows"
+                                value={result.total_flows ?? 0}
+                                icon={FileText}
+                                isActive={expandedSection === 'total_flows'}
+                                onClick={() => setExpandedSection(expandedSection === 'total_flows' ? null : 'total_flows')}
+                            />
+                            <ResultKPI
+                                label="Anomalies"
+                                value={result.anomaly_count ?? 0}
+                                icon={AlertTriangle}
+                                isActive={expandedSection === 'anomalies'}
+                                onClick={() => setExpandedSection(expandedSection === 'anomalies' ? null : 'anomalies')}
+                            />
+                            <ResultKPI
+                                label="Avg Risk"
+                                value={`${Math.round((result.avg_risk_score ?? 0) * 100)}%`}
+                                icon={Shield}
+                                isActive={expandedSection === 'avg_risk'}
+                                onClick={() => setExpandedSection(expandedSection === 'avg_risk' ? null : 'avg_risk')}
+                            />
                             {result.file_size != null && <ResultKPI label="File Size" value={formatSize(result.file_size)} icon={FileUp} />}
                         </div>
+
+                        {expandedSection === 'total_flows' && (
+                            <div className="mb-5 p-4 rounded-xl bg-dark-800/50 border border-white/10">
+                                <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3">Protocol Distribution</h4>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                    {Object.entries(result.report_details?.protocol_distribution || {}).map(([name, count]) => (
+                                        <div key={name} className="p-2 rounded-lg bg-dark-900/50 border border-white/5">
+                                            <p className="text-xs text-slate-400">{name}</p>
+                                            <p className="text-sm font-semibold text-white">{count}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {expandedSection === 'anomalies' && (
+                            <div className="mb-5 p-4 rounded-xl bg-dark-800/50 border border-white/10">
+                                <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3">Anomaly Types</h4>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+                                    {Object.entries(result.report_details?.anomaly_breakdown || {}).map(([name, count]) => (
+                                        <button
+                                            key={name}
+                                            type="button"
+                                            onClick={() => setUploadFilter({ type: 'classification', value: name })}
+                                            className={`p-2 rounded-lg bg-dark-900/50 border text-left ${uploadFilter.type === 'classification' && uploadFilter.value === name ? 'border-cyan-400/70' : 'border-white/5'} hover:border-cyan-400/40`}
+                                        >
+                                            <p className="text-xs text-slate-400">{name}</p>
+                                            <p className="text-sm font-semibold text-white">{count}</p>
+                                        </button>
+                                    ))}
+                                </div>
+                                {renderRows(filteredAnomalyRows.slice(0, anomalyRowsVisible))}
+                                {(anomalyRowsVisible < filteredAnomalyRows.length || hasMoreFlows) && (
+                                    <div className="mt-3 flex justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={handleViewMoreAnomalies}
+                                            disabled={loadingMoreFlows}
+                                            className="px-3 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-300 text-xs font-semibold border border-cyan-400/30 hover:bg-cyan-500/25 disabled:opacity-60"
+                                        >
+                                            {loadingMoreFlows ? 'Loading...' : 'View More'}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {expandedSection === 'avg_risk' && (
+                            <div className="mb-5 p-4 rounded-xl bg-dark-800/50 border border-white/10">
+                                <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3">Risk Breakdown</h4>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+                                    {Object.entries(result.report_details?.risk_breakdown || {}).map(([level, count]) => (
+                                        <button
+                                            key={level}
+                                            type="button"
+                                            onClick={() => setUploadFilter({ type: 'risk', value: level })}
+                                            className={`p-2 rounded-lg bg-dark-900/50 border text-left ${uploadFilter.type === 'risk' && uploadFilter.value === level ? 'border-cyan-400/70' : 'border-white/5'} hover:border-cyan-400/40`}
+                                        >
+                                            <p className="text-xs text-slate-400">{level}</p>
+                                            <p className="text-sm font-semibold text-white">{count}</p>
+                                        </button>
+                                    ))}
+                                </div>
+                                {renderRows(filteredRiskRows.slice(0, riskRowsVisible))}
+                                {(riskRowsVisible < filteredRiskRows.length || hasMoreFlows) && (
+                                    <div className="mt-3 flex justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={handleViewMoreRisk}
+                                            disabled={loadingMoreFlows}
+                                            className="px-3 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-300 text-xs font-semibold border border-cyan-400/30 hover:bg-cyan-500/25 disabled:opacity-60"
+                                        >
+                                            {loadingMoreFlows ? 'Loading...' : 'View More'}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {/* Attack Breakdown */}
                         <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Attack Distribution</h4>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
                             {Object.entries(result.attack_distribution || {}).map(([type, count]) => (
-                                <div key={type} className="p-3 rounded-xl bg-dark-800/50 border border-white/5">
+                                <button
+                                    key={type}
+                                    type="button"
+                                    onClick={() => setExpandedSection(expandedSection === `attack:${type}` ? null : `attack:${type}`)}
+                                    className={`p-3 rounded-xl bg-dark-800/50 border border-white/5 text-left transition-colors hover:border-cyan-400/40 ${expandedSection === `attack:${type}` ? 'border-cyan-400/70' : ''}`}
+                                >
                                     <p className="text-xs text-slate-400 mb-1">{type}</p>
                                     <p className="text-lg font-bold text-white">{count}</p>
-                                </div>
+                                </button>
                             ))}
                         </div>
 
-                        {/* Preview Table */}
-                        {result.flows && result.flows.length > 0 && (
+                        {expandedSection?.startsWith('attack:') && (
+                            <div className="mb-5 p-4 rounded-xl bg-dark-800/50 border border-white/10">
+                                <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3">
+                                    {expandedSection.replace('attack:', '')} Sample Flows
+                                </h4>
+                                {renderRows(result.report_details?.attack_flow_samples?.[expandedSection.replace('attack:', '')] || [])}
+                            </div>
+                        )}
+
+                        {/* All Flows (paged) */}
+                        {fileFlows.length > 0 && (
                             <>
-                                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Sample Flows</h4>
-                                <div className="overflow-x-auto">
+                                <div className="flex items-center justify-between mb-3">
+                                    <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                                        All Flows From This File ({filteredFileFlows.length}/{result.total_flows || 0})
+                                    </h4>
+                                    <div className="flex items-center gap-2">
+                                        {uploadFilter.type && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setUploadFilter({ type: '', value: '' })}
+                                                className="px-3 py-1.5 rounded-lg border border-white/15 text-slate-300 text-xs hover:border-cyan-400/30"
+                                            >
+                                                Clear Small Filter
+                                            </button>
+                                        )}
+                                        {hasMoreFlows && (
+                                            <button
+                                                type="button"
+                                                onClick={() => loadMoreFlows(result.id, flowsPage, false)}
+                                                disabled={loadingMoreFlows}
+                                                className="px-3 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-300 text-xs font-semibold border border-cyan-400/30 hover:bg-cyan-500/25 disabled:opacity-60"
+                                            >
+                                                {loadingMoreFlows ? 'Loading...' : 'View More'}
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="overflow-x-auto max-h-96 overflow-y-auto">
                                     <table className="w-full data-table">
                                         <thead>
                                             <tr>
@@ -199,7 +499,7 @@ export default function Upload() {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {result.flows.slice(0, 5).map((flow) => (
+                                            {filteredFileFlows.map((flow) => (
                                                 <tr key={flow.id}>
                                                     <td className="font-mono text-xs">{flow.src_ip}</td>
                                                     <td className="font-mono text-xs">{flow.dst_ip}</td>
@@ -214,8 +514,8 @@ export default function Upload() {
                                                         </span>
                                                     </td>
                                                     <td>
-                                                        <span className={`px-2 py-0.5 rounded-md text-xs font-medium badge-${flow.risk_level.toLowerCase()}`}>
-                                                            {flow.risk_level}
+                                                        <span className={`px-2 py-0.5 rounded-md text-xs font-medium badge-${(flow.risk_level || 'low').toLowerCase()}`}>
+                                                            {flow.risk_level || 'Low'}
                                                         </span>
                                                     </td>
                                                 </tr>
@@ -223,6 +523,9 @@ export default function Upload() {
                                         </tbody>
                                     </table>
                                 </div>
+                                {loadingMoreFlows && (
+                                    <p className="text-xs text-slate-400 mt-2">Loading more rows...</p>
+                                )}
                             </>
                         )}
                     </div>
@@ -232,12 +535,22 @@ export default function Upload() {
     );
 }
 
-function ResultKPI({ label, value, icon: Icon }) {
+function ResultKPI({ label, value, icon: Icon, isActive = false, onClick }) {
+    const clickable = typeof onClick === 'function';
+
     return (
-        <div className="p-3 rounded-xl bg-dark-800/50 border border-white/5 text-center">
+        <button
+            type="button"
+            onClick={onClick}
+            className={`p-3 rounded-xl bg-dark-800/50 border text-center w-full ${isActive ? 'border-cyan-400/70' : 'border-white/5'} ${clickable ? 'hover:border-cyan-400/40 transition-colors' : ''}`}
+            disabled={!clickable}
+        >
             <Icon size={16} className="mx-auto text-cyan-400 mb-1" />
             <p className="text-lg font-bold text-white">{value}</p>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wider">{label}</p>
-        </div>
+            <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center justify-center gap-1">
+                {label}
+                {clickable && (isActive ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
+            </p>
+        </button>
     );
 }

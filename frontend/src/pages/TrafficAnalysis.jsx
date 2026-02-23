@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { getTrafficFlows } from '../services/api';
+import { useState, useEffect, useCallback } from 'react';
+import { getTrafficFlows, getTrafficTrends } from '../services/api';
 import {
     Network,
     Search,
@@ -8,6 +8,32 @@ import {
     Filter,
     ArrowUpDown,
 } from 'lucide-react';
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from 'chart.js';
+import { Line } from 'react-chartjs-2';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
+
+const PROTOCOL_MAP = {
+    '1': 'ICMP',
+    '6': 'TCP',
+    '17': 'UDP',
+    '47': 'GRE',
+    '50': 'ESP',
+    '51': 'AH',
+    '89': 'OSPF',
+    '132': 'SCTP',
+};
+
+const PROTOCOL_OPTIONS = [
+    { value: '6', label: 'TCP (6)' },
+    { value: '17', label: 'UDP (17)' },
+    { value: '1', label: 'ICMP (1)' },
+    { value: '47', label: 'GRE (47)' },
+    { value: '50', label: 'ESP (50)' },
+    { value: '51', label: 'AH (51)' },
+    { value: '89', label: 'OSPF (89)' },
+    { value: '132', label: 'SCTP (132)' },
+];
 
 export default function TrafficAnalysis() {
     const [flows, setFlows] = useState([]);
@@ -16,6 +42,7 @@ export default function TrafficAnalysis() {
     const [totalPages, setTotalPages] = useState(1);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [trendData, setTrendData] = useState([]);
     const [filters, setFilters] = useState({
         classification: '',
         risk_level: '',
@@ -23,31 +50,46 @@ export default function TrafficAnalysis() {
         protocol: '',
     });
 
-    useEffect(() => {
-        fetchFlows();
-    }, [page, filters]);
-
-    const fetchFlows = async () => {
-        setLoading(true);
+    const fetchFlows = useCallback(async ({ silent = false } = {}) => {
+        if (!silent) {
+            setLoading(true);
+        }
         setError(null);
         try {
             const params = { page, per_page: 15 };
-            if (filters.classification) params.classification = filters.classification;
-            if (filters.risk_level) params.risk_level = filters.risk_level;
-            if (filters.src_ip) params.src_ip = filters.src_ip;
-            if (filters.protocol) params.protocol = filters.protocol;
+            if (filters.classification?.trim()) params.classification = filters.classification.trim();
+            if (filters.risk_level?.trim()) params.risk_level = filters.risk_level.trim();
+            if (filters.src_ip?.trim()) params.src_ip = filters.src_ip.trim();
+            if (filters.protocol?.trim()) params.protocol = filters.protocol.trim();
 
-            const { data } = await getTrafficFlows(params);
-            setFlows(data.flows || []);
-            setTotal(data.total ?? 0);
-            setTotalPages(Math.max(1, data.total_pages ?? 1));
+            const [flowsRes, trendsRes] = await Promise.all([
+                getTrafficFlows(params),
+                getTrafficTrends({ ...params, points: 96 }),
+            ]);
+            setFlows(flowsRes.data.flows || []);
+            setTotal(flowsRes.data.total ?? 0);
+            setTotalPages(Math.max(1, flowsRes.data.total_pages ?? 1));
+            setTrendData(trendsRes.data.points || []);
         } catch (err) {
             console.error('Failed to fetch flows:', err);
             setError(err.response?.data?.detail || 'Cannot reach backend. Start the API to see traffic data.');
         } finally {
-            setLoading(false);
+            if (!silent) {
+                setLoading(false);
+            }
         }
-    };
+    }, [page, filters]);
+
+    useEffect(() => {
+        fetchFlows();
+    }, [fetchFlows]);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            fetchFlows({ silent: true });
+        }, 5000);
+        return () => clearInterval(interval);
+    }, [fetchFlows]);
 
     const handleFilterChange = (key, value) => {
         setFilters((prev) => ({ ...prev, [key]: value }));
@@ -58,6 +100,26 @@ export default function TrafficAnalysis() {
         setFilters({ classification: '', risk_level: '', src_ip: '', protocol: '' });
         setPage(1);
     };
+
+    const formatProtocol = (value) => {
+        if (value == null) return '—';
+        const code = String(value).trim();
+        const name = PROTOCOL_MAP[code];
+        return name ? `${name} (${code})` : code;
+    };
+
+    const trendLabels = trendData.map((p) => {
+        const raw = String(p?.hour || '').trim();
+        if (!raw) return '';
+
+        let dt = new Date(raw);
+        if (Number.isNaN(dt.getTime())) dt = new Date(raw.replace(' ', 'T'));
+        if (Number.isNaN(dt.getTime()) && raw.length === 13) dt = new Date(`${raw}:00:00`);
+        if (Number.isNaN(dt.getTime()) && raw.length === 16) dt = new Date(`${raw}:00`);
+        if (Number.isNaN(dt.getTime())) return raw;
+
+        return dt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    });
 
     return (
         <div className="space-y-5">
@@ -100,7 +162,7 @@ export default function TrafficAnalysis() {
                         className="px-3 py-2 rounded-xl bg-dark-800 border border-white/5 text-sm text-white focus:outline-none focus:border-cyan-500/30 appearance-none cursor-pointer"
                     >
                         <option value="">All Classifications</option>
-                        {['Benign', 'DDoS', 'PortScan', 'BruteForce', 'Web Attack', 'Bot', 'Infiltration', 'Heartbleed'].map((c) => (
+                        {['Benign', 'Anomaly', 'DDoS', 'PortScan', 'BruteForce', 'Web Attack', 'Bot', 'Infiltration', 'Heartbleed'].map((c) => (
                             <option key={c} value={c}>{c}</option>
                         ))}
                     </select>
@@ -124,8 +186,8 @@ export default function TrafficAnalysis() {
                         className="px-3 py-2 rounded-xl bg-dark-800 border border-white/5 text-sm text-white focus:outline-none focus:border-cyan-500/30 appearance-none cursor-pointer"
                     >
                         <option value="">All Protocols</option>
-                        {['TCP', 'UDP', 'ICMP', 'HTTP', 'HTTPS', 'DNS', 'SSH'].map((p) => (
-                            <option key={p} value={p}>{p}</option>
+                        {PROTOCOL_OPTIONS.map((p) => (
+                            <option key={p.value} value={p.value}>{p.label}</option>
                         ))}
                     </select>
 
@@ -136,6 +198,118 @@ export default function TrafficAnalysis() {
                     >
                         Clear Filters
                     </button>
+                </div>
+            </div>
+
+            {/* Flow Trend Charts */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="glass-card p-4">
+                    <h3 className="text-sm font-semibold text-slate-300 mb-3">Flow Volume & Threat Mix (Averaged by Hour)</h3>
+                    <div className="h-72">
+                        <Line
+                            data={{
+                                labels: trendLabels,
+                                datasets: [
+                                    {
+                                        label: 'Total Flows',
+                                        data: trendData.map((p) => p.total_flows || 0),
+                                        borderColor: '#00d4ff',
+                                        backgroundColor: 'rgba(0, 212, 255, 0.08)',
+                                        pointRadius: trendData.length <= 1 ? 3 : 1,
+                                        borderWidth: 2,
+                                        tension: 0.25,
+                                    },
+                                    {
+                                        label: 'Threat Flows',
+                                        data: trendData.map((p) => p.threat_flows || 0),
+                                        borderColor: '#ef4444',
+                                        backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                                        pointRadius: trendData.length <= 1 ? 3 : 1,
+                                        borderWidth: 2,
+                                        tension: 0.25,
+                                    },
+                                    {
+                                        label: 'Benign Flows',
+                                        data: trendData.map((p) => p.benign_flows || 0),
+                                        borderColor: '#10b981',
+                                        backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                                        pointRadius: trendData.length <= 1 ? 3 : 1,
+                                        borderWidth: 2,
+                                        tension: 0.25,
+                                    },
+                                ],
+                            }}
+                            options={{
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                interaction: { mode: 'index', intersect: false },
+                                scales: {
+                                    x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#94a3b8', maxTicksLimit: 8 } },
+                                    y: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#64748b' } },
+                                },
+                                plugins: {
+                                    legend: { labels: { color: '#94a3b8', usePointStyle: true, pointStyleWidth: 8 } },
+                                },
+                            }}
+                        />
+                    </div>
+                </div>
+
+                <div className="glass-card p-4">
+                    <h3 className="text-sm font-semibold text-slate-300 mb-3">Average Risk, Confidence & Threat Rate</h3>
+                    <div className="h-72">
+                        <Line
+                            data={{
+                                labels: trendLabels,
+                                datasets: [
+                                    {
+                                        label: 'Avg Risk %',
+                                        data: trendData.map((p) => Math.round((p.avg_risk_score || 0) * 100)),
+                                        borderColor: '#f59e0b',
+                                        backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                                        pointRadius: trendData.length <= 1 ? 3 : 1,
+                                        borderWidth: 2,
+                                        tension: 0.25,
+                                    },
+                                    {
+                                        label: 'Avg Confidence %',
+                                        data: trendData.map((p) => Math.round((p.avg_confidence || 0) * 100)),
+                                        borderColor: '#8b5cf6',
+                                        backgroundColor: 'rgba(139, 92, 246, 0.08)',
+                                        pointRadius: trendData.length <= 1 ? 3 : 1,
+                                        borderWidth: 2,
+                                        tension: 0.25,
+                                    },
+                                    {
+                                        label: 'Threat Rate %',
+                                        data: trendData.map((p) => p.threat_rate || 0),
+                                        borderColor: '#ef4444',
+                                        backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                                        pointRadius: trendData.length <= 1 ? 3 : 1,
+                                        borderWidth: 2,
+                                        tension: 0.25,
+                                    },
+                                ],
+                            }}
+                            options={{
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                interaction: { mode: 'index', intersect: false },
+                                scales: {
+                                    x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#94a3b8', maxTicksLimit: 8 } },
+                                    y: {
+                                        min: 0,
+                                        max: 100,
+                                        grid: { color: 'rgba(255,255,255,0.03)' },
+                                        ticks: { color: '#64748b', callback: (v) => `${v}%` },
+                                    },
+                                },
+                                plugins: {
+                                    legend: { labels: { color: '#94a3b8', usePointStyle: true, pointStyleWidth: 8 } },
+                                },
+                            }}
+                        />
+                    </div>
                 </div>
             </div>
 
@@ -193,7 +367,7 @@ export default function TrafficAnalysis() {
                                         <td className="font-mono text-xs text-slate-400">{flow.dst_port ?? '—'}</td>
                                         <td>
                                             <span className="px-2 py-0.5 rounded-md bg-dark-700 text-xs font-mono text-cyan-400 border border-white/5">
-                                                {flow.protocol ?? '—'}
+                                                {formatProtocol(flow.protocol)}
                                             </span>
                                         </td>
                                         <td className="text-xs text-slate-400">{flow.duration != null ? `${flow.duration}s` : '—'}</td>
@@ -201,7 +375,7 @@ export default function TrafficAnalysis() {
                                             {flow.flow_bytes_per_sec != null ? (flow.flow_bytes_per_sec / 1000).toFixed(1) + 'K' : '—'}
                                         </td>
                                         <td>
-                                            <span className={`text-xs font-semibold ${flow.classification === 'Benign' ? 'text-green-400' : 'text-red-400'}`}>
+                                            <span className={`text-xs font-semibold ${String(flow.classification || '').toLowerCase() === 'benign' ? 'text-green-400' : 'text-red-400'}`}>
                                                 {flow.classification}
                                             </span>
                                         </td>

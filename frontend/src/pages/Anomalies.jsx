@@ -5,6 +5,10 @@ import {
     TrendingUp,
     Zap,
     Eye,
+    Filter,
+    Search,
+    ChevronLeft,
+    ChevronRight,
 } from 'lucide-react';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from 'chart.js';
 import { Bar, Doughnut } from 'react-chartjs-2';
@@ -16,11 +20,23 @@ const chartColors = ['#ef4444', '#f59e0b', '#8b5cf6', '#00d4ff', '#10b981', '#ec
 export default function Anomalies() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [filters, setFilters] = useState({
+        classification: '',
+        risk_level: '',
+        src_ip: '',
+        protocol: '',
+    });
+    const [page, setPage] = useState(1);
 
     const fetchAnomalies = async () => {
         setLoading(true);
         try {
-            const { data: d } = await getAnomalies();
+            const params = { page, per_page: 20 };
+            if (filters.classification?.trim()) params.classification = filters.classification.trim();
+            if (filters.risk_level?.trim()) params.risk_level = filters.risk_level.trim();
+            if (filters.src_ip?.trim()) params.src_ip = filters.src_ip.trim();
+            if (filters.protocol?.trim()) params.protocol = filters.protocol.trim();
+            const { data: d } = await getAnomalies(params);
             setData(d);
         } catch (err) {
             console.error('Failed to fetch anomalies:', err);
@@ -32,7 +48,7 @@ export default function Anomalies() {
 
     useEffect(() => {
         fetchAnomalies();
-    }, []);
+    }, [page, filters]);
 
     if (loading) {
         return (
@@ -68,7 +84,7 @@ export default function Anomalies() {
                     Anomaly Detection
                 </h1>
                 <p className="text-xs text-slate-400 mt-1">
-                    Isolation Forest anomaly detection results — {data.total_anomalies} anomalies detected
+                    Threat detection results from uploaded flows — {data.total_anomalies} threats detected
                 </p>
             </div>
 
@@ -185,8 +201,54 @@ export default function Anomalies() {
             <div className="glass-card p-5">
                 <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
                     <Eye size={14} className="text-red-400" />
-                    Top Anomalies (Highest Score)
+                    Top Threats (Highest Score)
                 </h3>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                    <div className="relative">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                        <input
+                            type="text"
+                            placeholder="Source IP..."
+                            value={filters.src_ip}
+                            onChange={(e) => { setFilters((p) => ({ ...p, src_ip: e.target.value })); setPage(1); }}
+                            className="w-full pl-9 pr-3 py-2 rounded-xl bg-dark-800 border border-white/5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/30 transition-colors"
+                        />
+                    </div>
+                    <select
+                        value={filters.classification}
+                        onChange={(e) => { setFilters((p) => ({ ...p, classification: e.target.value })); setPage(1); }}
+                        className="px-3 py-2 rounded-xl bg-dark-800 border border-white/5 text-sm text-white focus:outline-none focus:border-cyan-500/30 appearance-none cursor-pointer"
+                    >
+                        <option value="">All Threat Types</option>
+                        {Object.keys(data.attack_breakdown || {}).map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                        ))}
+                    </select>
+                    <select
+                        value={filters.risk_level}
+                        onChange={(e) => { setFilters((p) => ({ ...p, risk_level: e.target.value })); setPage(1); }}
+                        className="px-3 py-2 rounded-xl bg-dark-800 border border-white/5 text-sm text-white focus:outline-none focus:border-cyan-500/30 appearance-none cursor-pointer"
+                    >
+                        <option value="">All Risk Levels</option>
+                        {['Critical', 'High', 'Medium', 'Low'].map((r) => (
+                            <option key={r} value={r}>{r}</option>
+                        ))}
+                    </select>
+                    <input
+                        type="text"
+                        placeholder="Protocol..."
+                        value={filters.protocol}
+                        onChange={(e) => { setFilters((p) => ({ ...p, protocol: e.target.value })); setPage(1); }}
+                        className="px-3 py-2 rounded-xl bg-dark-800 border border-white/5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/30"
+                    />
+                    <button
+                        onClick={() => { setFilters({ classification: '', risk_level: '', src_ip: '', protocol: '' }); setPage(1); }}
+                        className="px-4 py-2 rounded-xl border border-white/10 text-xs text-slate-400 hover:text-white hover:border-cyan-500/30 transition-colors flex items-center justify-center gap-2"
+                    >
+                        <Filter size={12} />
+                        Clear
+                    </button>
+                </div>
                 <div className="overflow-x-auto">
                     <table className="w-full data-table">
                         <thead>
@@ -204,8 +266,8 @@ export default function Anomalies() {
                         <tbody>
                             {(data.top_anomalies || []).length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} className="text-center py-8 text-slate-400 text-sm">
-                                        No anomalies in current data. Upload a capture or wait for backend to load flow data.
+                                    <td colSpan={8} className="text-center py-8 text-slate-400 text-sm">
+                                        No threats in current data for selected filters.
                                     </td>
                                 </tr>
                             ) : (data.top_anomalies || []).map((a, i) => (
@@ -231,7 +293,7 @@ export default function Anomalies() {
                                             <span className="text-xs font-mono text-red-400">{a.anomaly_score.toFixed(3)}</span>
                                         </div>
                                     </td>
-                                    <td className="text-xs text-slate-400">{(a.confidence * 100).toFixed(0)}%</td>
+                                    <td className="text-xs text-slate-400">{(((a.confidence ?? 0) * 100)).toFixed(0)}%</td>
                                     <td>
                                         <span className={`px-2 py-0.5 rounded-md text-xs font-medium badge-${a.risk_level.toLowerCase()}`}>
                                             {a.risk_level}
@@ -242,8 +304,30 @@ export default function Anomalies() {
                         </tbody>
                     </table>
                 </div>
+                {(data.total_pages || 1) > 1 && (
+                    <div className="flex items-center justify-between px-1 pt-4">
+                        <p className="text-xs text-slate-400">
+                            Page {data.page || 1} / {data.total_pages || 1}
+                        </p>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setPage(Math.max(1, (data.page || 1) - 1))}
+                                disabled={(data.page || 1) <= 1}
+                                className="p-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:border-cyan-500/30 disabled:opacity-30 transition-colors"
+                            >
+                                <ChevronLeft size={14} />
+                            </button>
+                            <button
+                                onClick={() => setPage(Math.min(data.total_pages || 1, (data.page || 1) + 1))}
+                                disabled={(data.page || 1) >= (data.total_pages || 1)}
+                                className="p-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:border-cyan-500/30 disabled:opacity-30 transition-colors"
+                            >
+                                <ChevronRight size={14} />
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
 }
-

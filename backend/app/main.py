@@ -9,7 +9,8 @@ import glob
 from datetime import datetime, timedelta
 from pathlib import Path
 import shutil
-from backend.app.services.decision_service import decision_engine
+from app.services.decision_service import decision_engine
+from app import db
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,9 +33,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── In-memory storage (for demo) ────────────────────────────────────────
+# Initialize database
+db.init_db()
+
+# ── In-memory storage (for analysis results only) ────────────────────
+# Flow records are now stored in SQLite database (db.py)
 analysis_results: Dict[str, Any] = {}
-flow_records: List[Dict[str, Any]] = []
 
 # ── Simulated model metrics (Replace with real metrics if available) ──────
 # Ideally load metrics.json from training artifacts
@@ -187,8 +191,9 @@ def load_real_data_sample(limit: int = 500) -> List[Dict[str, Any]]:
 
 
 # ── Initialize Data ─────────────────────────────────────────────────────
-# Replace demo data with real data sample
-flow_records = load_real_data_sample(500)
+# Start with empty records - data will be populated when users upload files
+# To test with demo data, uncomment the line below:
+# flow_records = load_real_data_sample(500)
 
 
 # ── Pydantic Models ─────────────────────────────────────────────────────
@@ -222,107 +227,8 @@ async def health_check():
 # ── Dashboard Stats ─────────────────────────────────────────────────────
 @app.get("/api/dashboard/stats")
 async def dashboard_stats():
-    total = len(flow_records)
-    anomalies = sum(1 for f in flow_records if f["is_anomaly"])
-    avg_risk = round(sum(f["risk_score"] for f in flow_records) / max(total, 1), 3)
-
-    attack_dist = {}
-    for f in flow_records:
-        cls = f["classification"]
-        attack_dist[cls] = attack_dist.get(cls, 0) + 1
-
-    risk_dist = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
-    for f in flow_records:
-        if "risk_level" in f:
-             risk_dist[f["risk_level"]] = risk_dist.get(f["risk_level"], 0) + 1
-
-    # Time-series data (last 24 hours, hourly)
-    now = datetime.now()
-    timeline = []
-    
-    # Optimized timeline logic
-    hourly_buckets = {h: {"total": 0, "anomalies": 0} for h in range(24)}
-    
-    for f in flow_records:
-        try:
-             ts = datetime.fromisoformat(f["timestamp"])
-             if (now - ts).total_seconds() < 24 * 3600:
-                 hour_idx = int((now - ts).total_seconds() / 3600)
-                 if 0 <= hour_idx < 24:
-                     # hour_idx 0 is "current hour", 23 is "23 hours ago"
-                     # We map back. But simpler: bucket by hour of day
-                     # Let's stick to "hours ago"
-                     bucket = hourly_buckets[23 - hour_idx] # Fill backwards
-                     bucket["total"] += 1
-                     if f["is_anomaly"]:
-                         bucket["anomalies"] += 1
-        except:
-             pass
-
-    for h in range(24):
-         t = now - timedelta(hours=23 - h)
-         # Re-calculate simple
-         # Actually previous logic was inefficient O(N*24).
-         # Let's keep simple logic for now but fix timestamp parsing issue if any
-         pass
-         
-    # Re-implement cleaner timeline
-    timeline = []
-    for h in range(24):
-        t = now - timedelta(hours=23 - h)
-        window_start = t - timedelta(minutes=30)
-        window_end = t + timedelta(minutes=30)
-        
-        count = 0
-        anom = 0
-        for f in flow_records:
-            try:
-                fts = datetime.fromisoformat(f["timestamp"])
-                # Check if roughly in hour window
-                # Simplified check for speed
-                delta = (t - fts).total_seconds()
-                if abs(delta) < 1800:
-                    count += 1
-                    if f["is_anomaly"]:
-                        anom += 1
-            except:
-                continue
-                
-        timeline.append({
-            "hour": t.strftime("%H:00"),
-            "total": count,
-            "anomalies": anom,
-        })
-
-    return {
-        "total_flows": total,
-        "total_anomalies": anomalies,
-        "anomaly_rate": round(anomalies / max(total, 1) * 100, 1),
-        "avg_risk_score": avg_risk,
-        "attack_distribution": attack_dist,
-        "risk_distribution": risk_dist,
-        "timeline": timeline,
-        "protocols": _count_field("protocol"),
-        "top_sources": _top_ips("src_ip", 10),
-        "top_destinations": _top_ips("dst_ip", 10),
-    }
-
-
-def _count_field(field: str) -> Dict[str, int]:
-    counts: Dict[str, int] = {}
-    for f in flow_records:
-        v = str(f.get(field, "Unknown"))
-        counts[v] = counts.get(v, 0) + 1
-    return counts
-
-
-def _top_ips(field: str, n: int) -> List[Dict[str, Any]]:
-    counts: Dict[str, int] = {}
-    for f in flow_records:
-        v = str(f.get(field, "Unknown"))
-        counts[v] = counts.get(v, 0) + 1
-    sorted_ips = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:n]
-    return [{"ip": ip, "count": c} for ip, c in sorted_ips]
+    """Get dashboard statistics from database."""
+    return db.get_dashboard_stats()
 
 
 # ── Traffic Flows ────────────────────────────────────────────────────────
@@ -335,22 +241,17 @@ async def get_flows(
     src_ip: Optional[str] = None,
     protocol: Optional[str] = None,
 ):
-    filtered = flow_records[:]
-    if classification:
-        filtered = [f for f in filtered if f.get("classification") == classification]
-    if risk_level:
-        filtered = [f for f in filtered if f.get("risk_level") == risk_level]
-    if src_ip:
-        filtered = [f for f in filtered if src_ip in f.get("src_ip", "")]
-    if protocol:
-        filtered = [f for f in filtered if str(f.get("protocol")) == protocol]
-
-    total = len(filtered)
-    start = (page - 1) * per_page
-    end = start + per_page
-
+    flows, total = db.get_flows(
+        page=page,
+        per_page=per_page,
+        classification=classification,
+        risk_level=risk_level,
+        src_ip=src_ip,
+        protocol=protocol,
+    )
+    
     return {
-        "flows": filtered[start:end],
+        "flows": flows,
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -358,84 +259,138 @@ async def get_flows(
     }
 
 
-# ── Anomalies ───────────────────────────────────────────────────────────
-@app.get("/api/anomalies")
-async def get_anomalies():
-    anomalies = sorted(
-        [f for f in flow_records if f.get("is_anomaly")],
-        key=lambda x: x.get("anomaly_score", 0),
-        reverse=True,
+@app.get("/api/traffic/trends")
+async def get_traffic_trends(
+    classification: Optional[str] = None,
+    risk_level: Optional[str] = None,
+    src_ip: Optional[str] = None,
+    protocol: Optional[str] = None,
+    points: int = 72,
+):
+    return db.get_traffic_trends(
+        classification=classification,
+        risk_level=risk_level,
+        src_ip=src_ip,
+        protocol=protocol,
+        points=points,
     )
 
-    score_ranges = {
-        "0.9-1.0": 0, "0.8-0.9": 0, "0.7-0.8": 0,
-        "0.6-0.7": 0, "0.5-0.6": 0, "< 0.5": 0,
-    }
-    for a in anomalies:
-        s = a.get("anomaly_score", 0)
-        if s >= 0.9:
-            score_ranges["0.9-1.0"] += 1
-        elif s >= 0.8:
-            score_ranges["0.8-0.9"] += 1
-        elif s >= 0.7:
-            score_ranges["0.7-0.8"] += 1
-        elif s >= 0.6:
-            score_ranges["0.6-0.7"] += 1
-        elif s >= 0.5:
-            score_ranges["0.5-0.6"] += 1
-        else:
-            score_ranges["< 0.5"] += 1
 
+@app.get("/api/upload/{analysis_id}/flows")
+async def get_upload_flows(
+    analysis_id: str,
+    page: int = 1,
+    per_page: int = 200,
+):
+    """Get paginated flows for one uploaded file analysis."""
+    per_page = max(1, min(per_page, 1000))
+    flows, total = db.get_flows(
+        page=page,
+        per_page=per_page,
+        analysis_id=analysis_id,
+    )
     return {
-        "total_anomalies": len(anomalies),
-        "top_anomalies": anomalies[:20],
-        "score_distribution": score_ranges,
-        "attack_breakdown": _count_field_filtered("classification", True),
+        "analysis_id": analysis_id,
+        "flows": flows,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": (total + per_page - 1) // per_page,
+        "has_more": (page * per_page) < total,
     }
 
 
-def _count_field_filtered(field: str, is_anomaly: bool) -> Dict[str, int]:
-    counts: Dict[str, int] = {}
-    for f in flow_records:
-        if f.get("is_anomaly") == is_anomaly:
-            v = str(f.get(field, "Unknown"))
-            counts[v] = counts.get(v, 0) + 1
-    return counts
+# ── Anomalies ───────────────────────────────────────────────────────────
+@app.get("/api/anomalies")
+async def get_anomalies(
+    page: int = 1,
+    per_page: int = 20,
+    classification: Optional[str] = None,
+    risk_level: Optional[str] = None,
+    src_ip: Optional[str] = None,
+    protocol: Optional[str] = None,
+):
+    """Get threat data (all attack/anomaly types) from uploaded flow records in database."""
+    per_page = max(1, min(per_page, 200))
+    return db.get_threat_data(
+        page=page,
+        per_page=per_page,
+        classification=classification,
+        risk_level=risk_level,
+        src_ip=src_ip,
+        protocol=protocol,
+    )
 
 
 # ── Model Performance ────────────────────────────────────────────────────
-def _load_training_metrics() -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Load metrics from training_pipeline/models/metrics.json if present; else use fallback."""
+def _load_training_metrics() -> Tuple[Dict[str, Any], Dict[str, Any], str]:
+    """Load metrics from training_pipeline/models/metrics.json if present."""
     metrics_path = Path(__file__).parent.parent.parent / "training_pipeline" / "models" / "metrics.json"
     if metrics_path.exists():
         try:
             with open(metrics_path, "r") as f:
                 data = json.load(f)
-            models = {**MODEL_METRICS, **data.get("models", {})}
+            models = data.get("models", {}) or {}
             training_info = data.get("training_info", {})
-            return models, training_info
+            return models, training_info, "metrics_json"
         except Exception as e:
             print(f"Could not load metrics.json: {e}")
-    training_info = {
-        "dataset": "CIC-IDS + UNSW-NB15",
-        "total_samples": 225745,
-        "training_samples": 180596,
-        "test_samples": 45149,
-        "feature_count": 78,
-        "last_trained": (datetime.now() - timedelta(days=2)).isoformat(),
-    }
-    return MODEL_METRICS, training_info
+    return {}, {}, "runtime_only"
 
 
 @app.get("/api/models/metrics")
 async def model_metrics():
-    models, training_info = _load_training_metrics()
-    return {"models": models, "training_info": training_info}
+    models, training_info, source = _load_training_metrics()
+    dashboard = db.get_dashboard_stats()
+
+    total_flows = dashboard.get("total_flows", 0) or 0
+    total_anomalies = dashboard.get("total_anomalies", 0) or 0
+    avg_risk_score = dashboard.get("avg_risk_score", 0) or 0
+
+    # Runtime metrics from actual uploaded/analyzed flow data.
+    recent_flows, _ = db.get_flows(page=1, per_page=1000)
+    avg_conf = (
+        float(sum(f.get("confidence", 0) for f in recent_flows) / max(len(recent_flows), 1))
+        if total_flows > 0 else 0.0
+    )
+
+    live_metrics = {
+        "total_flows": total_flows,
+        "total_anomalies": total_anomalies,
+        "anomaly_rate": round((total_anomalies / max(total_flows, 1)) * 100, 2),
+        "avg_risk_score": avg_risk_score,
+        "avg_confidence": round(avg_conf, 4),
+        "risk_distribution": dashboard.get("risk_distribution", {}),
+    }
+
+    if not training_info:
+        training_info = {
+            "dataset": "Runtime uploaded flows",
+            "total_samples": total_flows,
+            "training_samples": 0,
+            "test_samples": 0,
+            "feature_count": len(decision_engine.feature_names) if decision_engine.feature_names is not None else 0,
+            "last_trained": None,
+        }
+
+    return {
+        "models": models,
+        "training_info": training_info,
+        "live_metrics": live_metrics,
+        "model_status": {
+            "supervised_loaded": bool(decision_engine.rf_model and decision_engine.label_encoder),
+            "unsupervised_loaded": bool(decision_engine.if_model),
+            "scaler_loaded": bool(decision_engine.scaler),
+        },
+        "source": source,
+    }
 
 
 # ── File Upload ──────────────────────────────────────────────────────────
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
+    global flow_records, analysis_results
+    
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
 
@@ -459,53 +414,110 @@ async def upload_file(file: UploadFile = File(...)):
         ext = file.filename.split('.')[-1].lower()
         if ext == 'pcapng': ext = 'pcap'
         
-        result = decision_engine.analyze_file(str(file_path), ext)
+        result = decision_engine.analyze_file(
+            str(file_path),
+            ext,
+            include_flows=False,
+            source_filename=file.filename,
+            on_chunk_processed=db.insert_flows
+        )
         
         if "error" in result:
              raise HTTPException(status_code=500, detail=result["error"])
 
-        # Update global flow records for dashboard (optional, limited to 1000)
-        # Note: result['flows'] has the new flows
-        if 'flows' in result:
-             flow_records.extend(result['flows'])
-             # Keep memory usage in check
-             if len(flow_records) > 2000:
-                 del flow_records[:len(result['flows'])]
-
         analysis_results[result['id']] = result
-        return result
         
+        return {
+            "status": "success",
+            "id": result['id'],
+            "filename": file.filename,
+            "total_flows": result.get('total_flows', 0),
+            "attack_distribution": result.get('attack_distribution', {}),
+            "risk_distribution": result.get('risk_distribution', {}),
+            "anomaly_count": result.get('anomaly_count', 0),
+            "avg_risk_score": result.get('avg_risk_score', 0),
+            "sample_flows": result.get('sample_flows', []),
+            "report_details": result.get('report_details', {}),
+            "file_size": file.size if hasattr(file, "size") and file.size is not None else None,
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # Cleanup upload if needed (analyze_file handles conversion temp, but input file stays here)
         if file_path.exists():
-            os.remove(file_path)
+            try:
+                os.remove(file_path)
+            except:
+                pass
 
 
 # ── SBOM Security ────────────────────────────────────────────────────────
+def _resolve_sbom_path() -> Path:
+    """Resolve SBOM file path from known locations."""
+    possible_paths = [
+        Path(__file__).parent.parent.parent.parent / "security" / "sbom.json",
+        Path("/home/ictd/Desktop/Network/nal/security/sbom.json"),
+        Path("../../security/sbom.json"),
+    ]
+    for p in possible_paths:
+        if p.exists():
+            return p
+    raise HTTPException(
+        status_code=404,
+        detail=f"SBOM file not found. Searched: {[str(p) for p in possible_paths]}"
+    )
+
+
 @app.get("/api/security/sbom")
 async def get_sbom():
-    sbom_path = Path(__file__).parent.parent.parent.parent / "security" / "sbom.json"
-
-    if not sbom_path.exists():
-        raise HTTPException(status_code=404, detail="SBOM file not found")
+    """Get SBOM data."""
+    sbom_path = _resolve_sbom_path()
 
     with open(sbom_path, "r") as f:
         sbom_data = json.load(f)
 
     components = sbom_data.get("components", [])
+    metadata = sbom_data.get("metadata", {}) or {}
+    tools = metadata.get("tools", {}) or {}
+    tool_components = tools.get("components", []) if isinstance(tools, dict) else []
+    metadata_component = metadata.get("component", {}) or {}
 
     return {
+        "schema": sbom_data.get("$schema"),
         "format": sbom_data.get("bomFormat", "CycloneDX"),
         "spec_version": sbom_data.get("specVersion", "unknown"),
+        "serial_number": sbom_data.get("serialNumber"),
+        "document_version": sbom_data.get("version"),
         "total_components": len(components),
+        "metadata": {
+            "timestamp": metadata.get("timestamp"),
+            "component": {
+                "bom_ref": metadata_component.get("bom-ref"),
+                "type": metadata_component.get("type"),
+                "name": metadata_component.get("name"),
+                "version": metadata_component.get("version"),
+            },
+            "tools": [
+                {
+                    "type": t.get("type"),
+                    "author": t.get("author"),
+                    "name": t.get("name"),
+                    "version": t.get("version"),
+                }
+                for t in tool_components
+            ]
+        },
         "components": [
             {
+                "bom_ref": c.get("bom-ref"),
                 "name": c.get("name", "unknown"),
                 "version": c.get("version", "unknown"),
                 "type": c.get("type", "library"),
                 "purl": c.get("purl", ""),
+                "cpe": c.get("cpe", ""),
+                "properties": c.get("properties", []),
             }
-            for c in components[:50]
+            for c in components
         ],
     }
 
@@ -543,9 +555,9 @@ async def get_vulnerabilities():
 
 @app.get("/api/security/sbom/download")
 async def download_sbom():
-    sbom_path = Path(__file__).parent.parent.parent.parent / "security" / "sbom.json"
-    if not sbom_path.exists():
-        raise HTTPException(status_code=404, detail="SBOM file not found")
+    """Download SBOM file as JSON."""
+    sbom_path = _resolve_sbom_path()
+    
     return FileResponse(
         path=str(sbom_path),
         filename="sbom.json",

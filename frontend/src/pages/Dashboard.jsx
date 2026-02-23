@@ -20,36 +20,125 @@ const chartColors = ['#00d4ff', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b', '#ef
 export default function Dashboard() {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [refreshing, setRefreshing] = useState(false);
+    const [lastFetch, setLastFetch] = useState(null);
 
     const fetchStats = async () => {
-        setLoading(true);
         try {
-            const { data } = await getDashboardStats();
+            setError(null);
+            console.log('🔄 Fetching dashboard stats...');
+            console.log('TIME:', new Date().toISOString());
+            const response = await getDashboardStats();
+            console.log('📊 FULL Response object:', JSON.stringify(response, null, 2));
+            console.log('response.data:', response.data);
+            console.log('response.status:', response.status);
+            console.log('response.headers:', response.headers);
+            
+            const data = response.data;
+            console.log('📈 Data received:', data);
+            console.log('DATA TYPE:', typeof data);
+            console.log('DATA KEYS:', Object.keys(data));
+            console.log('total_flows =', data.total_flows);
+            console.log('Setting stats to:', data);
+            
             setStats(data);
+            setLastFetch(new Date().toLocaleTimeString());
+            setLoading(false);
+            console.log('✅ Stats fetched and set successfully');
         } catch (err) {
-            console.error('Failed to fetch dashboard stats:', err);
+            console.error('❌ Failed to fetch dashboard stats:', err);
+            console.error('Error details:', err.response?.data || err.message);
+            console.error('Full error:', err);
+            setError(err.response?.data?.detail || err.message || 'Failed to fetch data');
             setStats(null);
-        } finally {
             setLoading(false);
         }
     };
 
+    // Fetch on mount
     useEffect(() => {
+        console.log('🎬 Dashboard component mounted');
         fetchStats();
     }, []);
 
-    if (loading) return <LoadingSkeleton />;
-    if (!stats) return <ErrorState onRetry={fetchStats} />;
+    // Auto-refresh every 3 seconds (more frequent to see updates)
+    useEffect(() => {
+        const interval = setInterval(() => {
+            console.log('⏰ Auto-refresh triggered');
+            fetchStats();
+        }, 3000);
+        return () => clearInterval(interval);
+    }, []);
 
-    const riskPercent = Math.round(stats.avg_risk_score * 100);
+    const handleManualRefresh = async () => {
+        console.log('👆 Manual refresh triggered');
+        setRefreshing(true);
+        await fetchStats();
+        setRefreshing(false);
+    };
+
+    if (loading && !stats) {
+        console.log('🔄 Showing LoadingSkeleton - loading:', loading, 'stats:', stats);
+        return <LoadingSkeleton />;
+    }
+
+    // Use actual data or empty state
+    const statsData = stats || {
+        total_flows: 0,
+        total_anomalies: 0,
+        anomaly_rate: 0,
+        avg_risk_score: 0,
+        attack_distribution: {},
+        risk_distribution: { Critical: 0, High: 0, Medium: 0, Low: 0 },
+        timeline: [],
+        protocols: {},
+    };
+
+    console.log('🎨 RENDER - statsData:', statsData);
+    console.log('🎨 RENDER - stats was:', stats);
+    console.log('🎨 RENDER - stats || defaultObject result:', statsData);
+
+    const riskPercent = Math.round((statsData.avg_risk_score || 0) * 100);
+    console.log('🎨 RENDER - riskPercent:', riskPercent);
 
     return (
         <div className="space-y-6">
+            {/* Header with Refresh Button */}
+            <div className="flex justify-between items-center">
+                <div>
+                    <h1 className="text-2xl font-bold gradient-text">Network Dashboard</h1>
+                    <p className="text-xs text-slate-500 mt-1">
+                        Last updated: {lastFetch || 'Loading...'} | Total Flows: {statsData.total_flows}
+                    </p>
+                </div>
+                <button
+                    onClick={handleManualRefresh}
+                    disabled={refreshing}
+                    className="px-4 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-sm hover:bg-cyan-500/20 transition-colors disabled:opacity-50"
+                >
+                    {refreshing ? '⟳ Refreshing...' : '🔄 Refresh'}
+                </button>
+            </div>
+
+            {error && (
+                <div className="glass-card p-4 border-red-500/20 bg-red-500/5">
+                    <p className="text-red-400 text-sm">⚠️ {error}</p>
+                </div>
+            )}
+
+            {statsData.total_flows === 0 && !error && (
+                <div className="glass-card p-8 text-center border-yellow-500/20 bg-yellow-500/5">
+                    <p className="text-yellow-300 mb-2">📤 No data yet</p>
+                    <p className="text-sm text-slate-400">Upload a network file on the Upload page to see analysis results here</p>
+                </div>
+            )}
+
             {/* KPI Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <KPICard
                     title="Total Flows"
-                    value={stats.total_flows.toLocaleString()}
+                    value={statsData.total_flows.toLocaleString()}
                     icon={Activity}
                     color="cyan"
                     trend="+12.5%"
@@ -57,10 +146,10 @@ export default function Dashboard() {
                 />
                 <KPICard
                     title="Anomalies Detected"
-                    value={stats.total_anomalies.toLocaleString()}
+                    value={statsData.total_anomalies.toLocaleString()}
                     icon={AlertTriangle}
                     color="red"
-                    trend={`${stats.anomaly_rate}%`}
+                    trend={`${statsData.anomaly_rate}%`}
                     trendUp={false}
                     subtitle="Anomaly Rate"
                 />
@@ -74,7 +163,7 @@ export default function Dashboard() {
                 />
                 <KPICard
                     title="Active Protocols"
-                    value={Object.keys(stats.protocols || {}).length}
+                    value={Object.keys(statsData.protocols || {}).length}
                     icon={Globe}
                     color="green"
                     trend="Live"
@@ -93,9 +182,9 @@ export default function Dashboard() {
                     <div className="h-56 flex items-center justify-center">
                         <Doughnut
                             data={{
-                                labels: Object.keys(stats.attack_distribution),
+                                labels: Object.keys(statsData.attack_distribution || {}),
                                 datasets: [{
-                                    data: Object.values(stats.attack_distribution),
+                                    data: Object.values(statsData.attack_distribution || {}),
                                     backgroundColor: chartColors,
                                     borderWidth: 0,
                                     spacing: 2,
@@ -126,11 +215,11 @@ export default function Dashboard() {
                     <div className="h-56">
                         <Line
                             data={{
-                                labels: (stats.timeline || []).map(t => t.hour),
+                                labels: (statsData.timeline || []).map(t => t.hour),
                                 datasets: [
                                     {
                                         label: 'Total Flows',
-                                        data: (stats.timeline || []).map(t => t.total),
+                                        data: (statsData.timeline || []).map(t => t.total),
                                         borderColor: '#00d4ff',
                                         backgroundColor: 'rgba(0, 212, 255, 0.08)',
                                         fill: true,
@@ -141,7 +230,7 @@ export default function Dashboard() {
                                     },
                                     {
                                         label: 'Anomalies',
-                                        data: (stats.timeline || []).map(t => t.anomalies),
+                                        data: (statsData.timeline || []).map(t => t.anomalies),
                                         borderColor: '#ef4444',
                                         backgroundColor: 'rgba(239, 68, 68, 0.08)',
                                         fill: true,
@@ -177,8 +266,8 @@ export default function Dashboard() {
                         Risk Distribution
                     </h3>
                     <div className="space-y-3 mt-2">
-                        {Object.entries(stats.risk_distribution || {}).map(([level, count]) => {
-                            const total = stats.total_flows || 1;
+                        {Object.entries(statsData.risk_distribution || {}).map(([level, count]) => {
+                            const total = statsData.total_flows || 1;
                             const pct = Math.round((count / total) * 100);
                             const colorMap = {
                                 Critical: { bg: 'bg-red-500', text: 'text-red-400' },
@@ -235,10 +324,10 @@ export default function Dashboard() {
                     <div className="h-72">
                         <Bar
                             data={{
-                                labels: Object.keys(stats.protocols || {}),
+                                labels: Object.keys(statsData.protocols || {}),
                                 datasets: [{
                                     label: 'Flows',
-                                    data: Object.values(stats.protocols || {}),
+                                    data: Object.values(statsData.protocols || {}),
                                     backgroundColor: chartColors.map(c => c + '40'),
                                     borderColor: chartColors,
                                     borderWidth: 1,
@@ -279,7 +368,7 @@ export default function Dashboard() {
                             </tr>
                         </thead>
                         <tbody>
-                            {(stats.top_sources || []).map((ip, i) => (
+                            {(statsData.top_sources || []).map((ip, i) => (
                                 <tr key={ip.ip}>
                                     <td className="font-mono text-cyan-400">#{i + 1}</td>
                                     <td className="font-mono text-slate-200">{ip.ip}</td>
@@ -289,11 +378,11 @@ export default function Dashboard() {
                                             <div className="h-1.5 rounded-full bg-dark-700 w-20 overflow-hidden">
                                                 <div
                                                     className="h-full rounded-full bg-cyan-500"
-                                                    style={{ width: `${Math.round((ip.count / stats.total_flows) * 100)}%` }}
+                                                    style={{ width: `${Math.round((ip.count / Math.max(1, statsData.total_flows || 0)) * 100)}%` }}
                                                 />
                                             </div>
                                             <span className="text-xs text-slate-400">
-                                                {Math.round((ip.count / stats.total_flows) * 100)}%
+                                                {Math.round((ip.count / Math.max(1, statsData.total_flows || 0)) * 100)}%
                                             </span>
                                         </div>
                                     </td>
