@@ -19,6 +19,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
 from core.feature_engineering import clean_data, preprocess_data
+from app.classification_config import (
+    risk_level_from_score,
+    infer_anomaly_threat_type,
+    get_threat_info,
+    build_classification_reason,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -123,10 +129,11 @@ class DecisionEngine:
         should_cleanup_csv = False
         csv_path = file_path
         try:
-            # 1. Convert PCAP to CSV if needed
+            # 1. PCAP/PCAPNG only: convert to CSV with cicflowmeter; then same pipeline as CSV
             if file_type in ['pcap', 'pcapng']:
                 csv_path = self._convert_pcap_to_csv(file_path, process_id)
                 should_cleanup_csv = True
+            # 2. From here on: csv_path is always a CSV (uploaded CSV or converted from pcap). Same flow.
 
             attack_counts = {}
             risk_dist = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
@@ -214,18 +221,38 @@ class DecisionEngine:
 
                 chunk_rows = []
                 for i in range(len(df_clean)):
-                    lbl = str(labels[i])
+                    original_lbl = str(labels[i])
+                    lbl = original_lbl
                     conf = float(confidences[i])
                     anom_score = float(anomaly_scores[i])
                     is_anom = bool(is_anomaly[i])
 
+                    # Unsupervised override: infer threat type from flow features + anomaly score (more accurate than score-only buckets)
                     if is_anom and lbl == 'BENIGN':
-                        if anom_score > 0.8:
-                            lbl = "DDoS"
-                        elif anom_score > 0.6:
-                            lbl = "Bot"
-                        else:
-                            lbl = "Anomaly"
+                        # Build flow feature dict from current row (same names as we use below for row)
+                        duration = df_clean.get('Flow Duration', df_clean.get('flow_duration', None)).iloc[i] if 'Flow Duration' in df_clean or 'flow_duration' in df_clean else None
+                        flow_bytes_s = df_clean.get('Flow Bytes/s', df_clean.get('flow_byts_s', None)).iloc[i] if 'Flow Bytes/s' in df_clean or 'flow_byts_s' in df_clean else None
+                        flow_pkts_s = df_clean.get('Flow Packets/s', df_clean.get('flow_pkts_s', None)).iloc[i] if 'Flow Packets/s' in df_clean or 'flow_pkts_s' in df_clean else None
+                        tot_fwd = df_clean.get('Total Fwd Packets', df_clean.get('tot_fwd_pkts', None)).iloc[i] if 'Total Fwd Packets' in df_clean or 'tot_fwd_pkts' in df_clean else None
+                        tot_bwd = df_clean.get('Total Bwd Packets', df_clean.get('tot_bwd_pkts', None)).iloc[i] if 'Total Bwd Packets' in df_clean or 'tot_bwd_pkts' in df_clean else None
+                        totlen_fwd = df_clean.get('Total Length Fwd Packets', df_clean.get('totlen_fwd_pkts', None)).iloc[i] if 'Total Length Fwd Packets' in df_clean or 'totlen_fwd_pkts' in df_clean else None
+                        totlen_bwd = df_clean.get('Total Length Bwd Packets', df_clean.get('totlen_bwd_pkts', None)).iloc[i] if 'Total Length Bwd Packets' in df_clean or 'totlen_bwd_pkts' in df_clean else None
+                        dst_port = df_clean.get('Destination Port', df_clean.get('dst_port', None)).iloc[i] if 'Destination Port' in df_clean or 'dst_port' in df_clean else None
+                        proto = df_clean.get('Protocol', df_clean.get('protocol', None)).iloc[i] if 'Protocol' in df_clean or 'protocol' in df_clean else None
+                        syn_cnt = df_clean.get('SYN Flag Count', df_clean.get('syn_flag_cnt', None)).iloc[i] if 'SYN Flag Count' in df_clean or 'syn_flag_cnt' in df_clean else None
+                        flow_features = {
+                            "duration": duration, "flow_duration": duration,
+                            "flow_bytes_per_sec": flow_bytes_s, "flow_byts_s": flow_bytes_s,
+                            "flow_packets_per_sec": flow_pkts_s, "flow_pkts_s": flow_pkts_s,
+                            "total_fwd_packets": tot_fwd, "tot_fwd_pkts": tot_fwd,
+                            "total_bwd_packets": tot_bwd, "tot_bwd_pkts": tot_bwd,
+                            "total_length_fwd": totlen_fwd, "totlen_fwd_pkts": totlen_fwd,
+                            "total_length_bwd": totlen_bwd, "totlen_bwd_pkts": totlen_bwd,
+                            "dst_port": dst_port, "Destination Port": dst_port,
+                            "protocol": proto, "Protocol": proto,
+                            "syn_flag_cnt": syn_cnt, "SYN Flag Count": syn_cnt,
+                        }
+                        lbl = infer_anomaly_threat_type(flow_features, anom_score)
 
                     if lbl == 'BENIGN':
                         risk = anom_score * 0.6
@@ -233,12 +260,19 @@ class DecisionEngine:
                         if self.rf_model and self.label_encoder:
                             risk = (conf * 0.7) + (anom_score * 0.3)
                         else:
-                            # In unsupervised-only mode, widen risk spread so High/Critical remain reachable.
                             pseudo_conf = max(conf, min(1.0, 0.55 + (0.45 * anom_score)))
                             risk = (pseudo_conf * 0.6) + (anom_score * 0.4) + 0.15
 
                     risk = float(np.clip(risk, 0, 1))
-                    risk_level = "Critical" if risk > 0.8 else "High" if risk > 0.6 else "Medium" if risk > 0.3 else "Low"
+                    risk_level = risk_level_from_score(risk)
+                    is_supervised_threat = not (is_anom and original_lbl == 'BENIGN')
+                    threat_info = get_threat_info(lbl)
+                    # Ensure threat_type is always set (so UI never shows "undefined")
+                    threat_type_val = (threat_info.get("threat_type") or lbl or "Unknown").strip()
+                    cve_refs_str = ",".join(threat_info["cve_refs"]) if threat_info.get("cve_refs") else ""
+                    classification_reason = build_classification_reason(
+                        lbl, is_supervised_threat, conf, anom_score, risk_level
+                    )
 
                     src_ip = df_clean.get('Source IP', df_clean.get('src_ip', '0.0.0.0')).iloc[i] if 'Source IP' in df_clean or 'src_ip' in df_clean else 'N/A'
                     dst_ip = df_clean.get('Destination IP', df_clean.get('dst_ip', '0.0.0.0')).iloc[i] if 'Destination IP' in df_clean or 'dst_ip' in df_clean else 'N/A'
@@ -272,6 +306,9 @@ class DecisionEngine:
                         "flow_packets_per_sec": _safe_float(flow_packets_s),
                         "timestamp": pd.Timestamp.now().isoformat(),
                         "classification": lbl,
+                        "threat_type": threat_type_val,
+                        "cve_refs": cve_refs_str,
+                        "classification_reason": classification_reason,
                         "confidence": conf,
                         "anomaly_score": anom_score,
                         "risk_score": risk,
@@ -292,6 +329,9 @@ class DecisionEngine:
                         _top_n_append(top_anomaly_flows, {
                             "id": row["id"],
                             "classification": row["classification"],
+                            "threat_type": row["threat_type"],
+                            "cve_refs": row["cve_refs"],
+                            "classification_reason": row["classification_reason"],
                             "src_ip": row["src_ip"],
                             "dst_ip": row["dst_ip"],
                             "protocol": row["protocol"],
@@ -303,6 +343,9 @@ class DecisionEngine:
                     _top_n_append(top_risk_flows, {
                         "id": row["id"],
                         "classification": row["classification"],
+                        "threat_type": row["threat_type"],
+                        "cve_refs": row["cve_refs"],
+                        "classification_reason": row["classification_reason"],
                         "src_ip": row["src_ip"],
                         "dst_ip": row["dst_ip"],
                         "protocol": row["protocol"],
@@ -321,6 +364,9 @@ class DecisionEngine:
                         attack_flow_samples[attack_sample_key].append({
                             "id": row["id"],
                             "classification": row["classification"],
+                            "threat_type": row["threat_type"],
+                            "cve_refs": row["cve_refs"],
+                            "classification_reason": row["classification_reason"],
                             "src_ip": row["src_ip"],
                             "dst_ip": row["dst_ip"],
                             "protocol": row["protocol"],
@@ -388,7 +434,7 @@ class DecisionEngine:
             
         if not csv_path.exists():
              raise RuntimeError("CSV file was not created by cicflowmeter.")
-             
+        logger.info("PCAP/PCAPNG conversion done; starting flow analysis (same as CSV path).")
         return str(csv_path)
 
 # Singleton instance

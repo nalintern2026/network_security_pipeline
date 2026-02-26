@@ -231,6 +231,33 @@ async def dashboard_stats():
     return db.get_dashboard_stats()
 
 
+# ── Classification criteria (thresholds & CVE mapping) ────────────────────
+@app.get("/api/classification/criteria")
+async def get_classification_criteria():
+    """Return classification criteria, risk thresholds, and threat→CVE mapping for UI/docs."""
+    from app.classification_config import (
+        RISK_THRESHOLDS,
+        ANOMALY_LABEL_THRESHOLDS,
+        THREAT_CVE_MAP,
+    )
+    return {
+        "risk_thresholds": RISK_THRESHOLDS,
+        "risk_levels": ["Critical", "High", "Medium", "Low"],
+        "anomaly_label_thresholds": ANOMALY_LABEL_THRESHOLDS,
+        "criteria_summary": {
+            "risk": "risk_score > 0.8 → Critical; > 0.6 → High; > 0.3 → Medium; else Low.",
+            "unsupervised_override": "If supervised says BENIGN but anomaly detector flags flow: threat type is inferred from flow features (rates, ports, protocol, packet counts). Fallback by anomaly_score only if no pattern matches.",
+            "feature_based_inference": "PortScan (few packets, SYN/probe-like); Brute Force (ports 21,22,23,3389,445, TCP); DDoS (very high rate or volume); Web Attack (80/443, high bytes); Heartbleed (443, specific packet pattern); Bot (high rate/UDP); Infiltration (unusual port + activity).",
+            "safe": "Classification BENIGN/Benign + low anomaly score = Safe (no CVE).",
+            "threat_cve": "Threat types are mapped to representative CVE(s) where applicable; 'Why' is in classification_reason.",
+        },
+        "threat_cve_map": {
+            k: {"threat_type": v["threat_type"], "cve_refs": v["cve_refs"], "description": v["description"]}
+            for k, v in THREAT_CVE_MAP.items()
+        },
+    }
+
+
 # ── Traffic Flows ────────────────────────────────────────────────────────
 @app.get("/api/traffic/flows")
 async def get_flows(
@@ -238,6 +265,7 @@ async def get_flows(
     per_page: int = 20,
     classification: Optional[str] = None,
     risk_level: Optional[str] = None,
+    threat_type: Optional[str] = None,
     src_ip: Optional[str] = None,
     protocol: Optional[str] = None,
 ):
@@ -246,6 +274,7 @@ async def get_flows(
         per_page=per_page,
         classification=classification,
         risk_level=risk_level,
+        threat_type=threat_type,
         src_ip=src_ip,
         protocol=protocol,
     )
@@ -263,6 +292,7 @@ async def get_flows(
 async def get_traffic_trends(
     classification: Optional[str] = None,
     risk_level: Optional[str] = None,
+    threat_type: Optional[str] = None,
     src_ip: Optional[str] = None,
     protocol: Optional[str] = None,
     points: int = 72,
@@ -270,6 +300,7 @@ async def get_traffic_trends(
     return db.get_traffic_trends(
         classification=classification,
         risk_level=risk_level,
+        threat_type=threat_type,
         src_ip=src_ip,
         protocol=protocol,
         points=points,
@@ -387,38 +418,90 @@ async def model_metrics():
 
 
 # ── File Upload ──────────────────────────────────────────────────────────
+def _normalize_filename(name: Optional[str]) -> str:
+    """Use basename and strip; handle None or path-like filenames."""
+    if not name or not name.strip():
+        return ""
+    return Path(name.replace("\\", "/")).name.strip()
+
+
+def _allowed_extension(basename: str) -> Optional[str]:
+    """Return allowed extension if file is allowed; check .pcapng before .pcap. Case-insensitive."""
+    if not basename:
+        return None
+    lower = basename.lower()
+    if lower.endswith(".pcapng"):
+        return "pcapng"
+    if lower.endswith(".pcap"):
+        return "pcap"
+    if lower.endswith(".csv"):
+        return "csv"
+    return None
+
+
+# PCAP magic: a1 b2 c3 d4 | d4 c3 b2 a1 | a1 b2 3c 4d | 4d 3c b2 a1
+# PCAPNG magic: 0a 0d 0d 0a (first 4 bytes)
+def _detect_pcap_magic(path: Path) -> Optional[str]:
+    """Read first 8 bytes and return 'pcap', 'pcapng', or None."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(8)
+    except Exception:
+        return None
+    if len(head) < 4:
+        return None
+    # PCAPNG: first 4 bytes 0x0a 0x0d 0x0d 0x0a
+    if head[:4] == bytes([0x0A, 0x0D, 0x0D, 0x0A]):
+        return "pcapng"
+    # PCAP
+    if len(head) >= 4:
+        m = int.from_bytes(head[:4], "little")
+        mbe = int.from_bytes(head[:4], "big")
+        if m in (0xA1B2C3D4, 0xD4C3B2A1, 0xA1B23C4D, 0x4D3CB2A1):
+            return "pcap"
+        if mbe in (0xA1B2C3D4, 0xD4C3B2A1, 0xA1B23C4D, 0x4D3CB2A1):
+            return "pcap"
+    return None
+
+
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(..., alias="file")):
     global flow_records, analysis_results
-    
-    if not file.filename:
+
+    filename = _normalize_filename(file.filename)
+    if not filename:
         raise HTTPException(status_code=400, detail="No file provided")
 
-    allowed = (".pcap", ".pcapng", ".csv")
-    if not any(file.filename.lower().endswith(ext) for ext in allowed):
-        raise HTTPException(
-            status_code=400,
-            detail=f"File type not supported. Allowed: {', '.join(allowed)}",
-        )
-
-    # Save to temp file
+    # Save to temp first so we can use magic-byte detection for extension-less files (e.g. pcap chunks)
     temp_dir = Path(__file__).parent.parent.parent.parent / "temp_uploads"
     temp_dir.mkdir(exist_ok=True)
-    
-    file_path = temp_dir / f"{uuid.uuid4()}_{file.filename}"
+    file_path = temp_dir / f"{uuid.uuid4()}_{filename}"
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
-        
+
+    ext = _allowed_extension(filename)
+    if ext is None:
+        ext = _detect_pcap_magic(file_path)
+    if ext is None:
+        if file_path.exists():
+            try:
+                file_path.unlink()
+            except Exception:
+                pass
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type not supported (got '{file.filename}'). Allowed: .pcap, .pcapng, .csv (or extension-less pcap/pcapng).",
+        )
+
     try:
-        # Run real analysis
-        ext = file.filename.split('.')[-1].lower()
-        if ext == 'pcapng': ext = 'pcap'
+        # Run real analysis; pass 'pcap' for both .pcap and .pcapng (decision_service treats both same)
+        file_type = "pcap" if ext in ("pcap", "pcapng") else "csv"
         
         result = decision_engine.analyze_file(
             str(file_path),
-            ext,
+            file_type,
             include_flows=False,
-            source_filename=file.filename,
+            source_filename=filename,
             on_chunk_processed=db.insert_flows
         )
         
@@ -430,7 +513,7 @@ async def upload_file(file: UploadFile = File(...)):
         return {
             "status": "success",
             "id": result['id'],
-            "filename": file.filename,
+            "filename": filename,
             "total_flows": result.get('total_flows', 0),
             "attack_distribution": result.get('attack_distribution', {}),
             "risk_distribution": result.get('risk_distribution', {}),

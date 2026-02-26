@@ -6,7 +6,6 @@ import {
     ChevronLeft,
     ChevronRight,
     Filter,
-    ArrowUpDown,
 } from 'lucide-react';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from 'chart.js';
 import { Line } from 'react-chartjs-2';
@@ -24,15 +23,33 @@ const PROTOCOL_MAP = {
     '132': 'SCTP',
 };
 
-const PROTOCOL_OPTIONS = [
-    { value: '6', label: 'TCP (6)' },
-    { value: '17', label: 'UDP (17)' },
-    { value: '1', label: 'ICMP (1)' },
-    { value: '47', label: 'GRE (47)' },
-    { value: '50', label: 'ESP (50)' },
-    { value: '51', label: 'AH (51)' },
-    { value: '89', label: 'OSPF (89)' },
-    { value: '132', label: 'SCTP (132)' },
+// Protocol filter – backend matches both name (TCP) and number (6) in DB
+const PROTOCOL_FILTER_OPTIONS = [
+    { value: '', label: 'All Protocols' },
+    { value: 'TCP', label: 'TCP (6)' },
+    { value: 'UDP', label: 'UDP (17)' },
+    { value: 'ICMP', label: 'ICMP (1)' },
+    { value: 'GRE', label: 'GRE (47)' },
+    { value: 'ESP', label: 'ESP (50)' },
+    { value: 'AH', label: 'AH (51)' },
+    { value: 'OSPF', label: 'OSPF (89)' },
+    { value: 'SCTP', label: 'SCTP (132)' },
+];
+
+// Classification filter – one option per distinct label (backend matches case-insensitive)
+const CLASSIFICATION_OPTIONS = [
+    { value: '', label: 'All Classifications' },
+    { value: 'BENIGN', label: 'Benign (Safe)' },
+    { value: 'DDoS', label: 'DDoS' },
+    { value: 'Bot', label: 'Bot' },
+    { value: 'Anomaly', label: 'Anomaly' },
+    { value: 'PortScan', label: 'PortScan' },
+    { value: 'Brute Force', label: 'Brute Force' },
+    { value: 'BruteForce', label: 'BruteForce' },
+    { value: 'Web Attack', label: 'Web Attack' },
+    { value: 'Infiltration', label: 'Infiltration' },
+    { value: 'Heartbleed', label: 'Heartbleed' },
+    { value: 'DoS', label: 'DoS' },
 ];
 
 export default function TrafficAnalysis() {
@@ -101,6 +118,8 @@ export default function TrafficAnalysis() {
         setPage(1);
     };
 
+    const hasActiveFilters = filters.classification || filters.risk_level || filters.src_ip || filters.protocol;
+
     const formatProtocol = (value) => {
         if (value == null) return '—';
         const code = String(value).trim();
@@ -138,36 +157,45 @@ export default function TrafficAnalysis() {
 
             {/* Filters */}
             <div className="glass-card p-4">
-                <div className="flex items-center gap-2 mb-3">
-                    <Filter size={14} className="text-cyan-400" />
-                    <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Filters</span>
+                <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                        <Filter size={14} className="text-cyan-400" />
+                        <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Filters</span>
+                        {hasActiveFilters && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300">
+                                Active
+                            </span>
+                        )}
+                    </div>
+                    {hasActiveFilters && (
+                        <button
+                            onClick={clearFilters}
+                            className="text-xs text-slate-400 hover:text-cyan-400 transition-colors"
+                        >
+                            Clear all
+                        </button>
+                    )}
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    {/* IP Filter */}
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
                     <div className="relative">
                         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
                         <input
                             type="text"
-                            placeholder="Source IP..."
+                            placeholder="Source IP"
                             value={filters.src_ip}
                             onChange={(e) => handleFilterChange('src_ip', e.target.value)}
                             className="w-full pl-9 pr-3 py-2 rounded-xl bg-dark-800 border border-white/5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/30 transition-colors"
                         />
                     </div>
-
-                    {/* Classification */}
                     <select
                         value={filters.classification}
                         onChange={(e) => handleFilterChange('classification', e.target.value)}
                         className="px-3 py-2 rounded-xl bg-dark-800 border border-white/5 text-sm text-white focus:outline-none focus:border-cyan-500/30 appearance-none cursor-pointer"
                     >
-                        <option value="">All Classifications</option>
-                        {['Benign', 'Anomaly', 'DDoS', 'PortScan', 'BruteForce', 'Web Attack', 'Bot', 'Infiltration', 'Heartbleed'].map((c) => (
-                            <option key={c} value={c}>{c}</option>
+                        {CLASSIFICATION_OPTIONS.map((c) => (
+                            <option key={c.value || 'all'} value={c.value}>{c.label}</option>
                         ))}
                     </select>
-
-                    {/* Risk Level */}
                     <select
                         value={filters.risk_level}
                         onChange={(e) => handleFilterChange('risk_level', e.target.value)}
@@ -178,25 +206,20 @@ export default function TrafficAnalysis() {
                             <option key={r} value={r}>{r}</option>
                         ))}
                     </select>
-
-                    {/* Protocol */}
                     <select
                         value={filters.protocol}
                         onChange={(e) => handleFilterChange('protocol', e.target.value)}
                         className="px-3 py-2 rounded-xl bg-dark-800 border border-white/5 text-sm text-white focus:outline-none focus:border-cyan-500/30 appearance-none cursor-pointer"
                     >
-                        <option value="">All Protocols</option>
-                        {PROTOCOL_OPTIONS.map((p) => (
-                            <option key={p.value} value={p.value}>{p.label}</option>
+                        {PROTOCOL_FILTER_OPTIONS.map((p) => (
+                            <option key={p.value || 'all'} value={p.value}>{p.label}</option>
                         ))}
                     </select>
-
-                    {/* Clear */}
                     <button
                         onClick={clearFilters}
                         className="px-4 py-2 rounded-xl border border-white/10 text-xs text-slate-400 hover:text-white hover:border-cyan-500/30 transition-colors"
                     >
-                        Clear Filters
+                        Clear
                     </button>
                 </div>
             </div>
@@ -343,56 +366,44 @@ export default function TrafficAnalysis() {
                         <table className="w-full data-table">
                             <thead>
                                 <tr>
-                                    <th><span className="flex items-center gap-1">Time <ArrowUpDown size={10} /></span></th>
-                                    <th>Source IP</th>
-                                    <th>Dest IP</th>
-                                    <th>Port</th>
-                                    <th>Protocol</th>
-                                    <th>Duration</th>
-                                    <th>Bytes/s</th>
-                                    <th>Classification</th>
-                                    <th>Confidence</th>
-                                    <th>Anomaly</th>
-                                    <th>Risk</th>
+                                    <th className="text-left">Time</th>
+                                    <th className="text-left">Source IP</th>
+                                    <th className="text-left">Dest IP</th>
+                                    <th className="text-left">Port</th>
+                                    <th className="text-left">Protocol</th>
+                                    <th className="text-left">Duration</th>
+                                    <th className="text-left">B/s</th>
+                                    <th className="text-left">Classification</th>
+                                    <th className="text-left">Anomaly</th>
+                                    <th className="text-left">Risk</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {flows.map((flow) => (
                                     <tr key={flow.id}>
                                         <td className="text-xs text-slate-400 whitespace-nowrap">
-                                            {new Date(flow.timestamp).toLocaleTimeString()}
+                                            {flow.timestamp ? new Date(flow.timestamp).toLocaleTimeString() : '—'}
                                         </td>
-                                        <td className="font-mono text-xs text-cyan-300">{flow.src_ip}</td>
-                                        <td className="font-mono text-xs text-slate-300">{flow.dst_ip}</td>
+                                        <td className="font-mono text-xs text-cyan-300">{flow.src_ip ?? '—'}</td>
+                                        <td className="font-mono text-xs text-slate-300">{flow.dst_ip ?? '—'}</td>
                                         <td className="font-mono text-xs text-slate-400">{flow.dst_port ?? '—'}</td>
                                         <td>
                                             <span className="px-2 py-0.5 rounded-md bg-dark-700 text-xs font-mono text-cyan-400 border border-white/5">
                                                 {formatProtocol(flow.protocol)}
                                             </span>
                                         </td>
-                                        <td className="text-xs text-slate-400">{flow.duration != null ? `${flow.duration}s` : '—'}</td>
+                                        <td className="text-xs text-slate-400">{flow.duration != null ? `${Number(flow.duration).toFixed(1)}s` : '—'}</td>
                                         <td className="text-xs text-slate-400 font-mono">
-                                            {flow.flow_bytes_per_sec != null ? (flow.flow_bytes_per_sec / 1000).toFixed(1) + 'K' : '—'}
+                                            {flow.flow_bytes_per_sec != null ? (Number(flow.flow_bytes_per_sec) / 1000).toFixed(1) + 'K' : '—'}
                                         </td>
-                                        <td>
+                                        <td title={flow.classification_reason || ''}>
                                             <span className={`text-xs font-semibold ${String(flow.classification || '').toLowerCase() === 'benign' ? 'text-green-400' : 'text-red-400'}`}>
-                                                {flow.classification}
+                                                {flow.classification || '—'}
                                             </span>
                                         </td>
                                         <td>
-                                            <div className="flex items-center gap-1.5">
-                                                <div className="h-1.5 w-12 rounded-full bg-dark-700 overflow-hidden">
-                                                    <div
-                                                        className="h-full rounded-full bg-cyan-500"
-                                                        style={{ width: `${(flow.confidence ?? 0) * 100}%` }}
-                                                    />
-                                                </div>
-                                                <span className="text-xs text-slate-400">{((flow.confidence ?? 0) * 100).toFixed(0)}%</span>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <span className={`text-xs font-mono ${(flow.anomaly_score ?? 0) > 0.7 ? 'text-red-400' : (flow.anomaly_score ?? 0) > 0.4 ? 'text-yellow-400' : 'text-green-400'}`}>
-                                                {(flow.anomaly_score ?? 0).toFixed(2)}
+                                            <span className={`text-xs font-mono ${(Number(flow.anomaly_score) || 0) > 0.7 ? 'text-red-400' : (Number(flow.anomaly_score) || 0) > 0.4 ? 'text-yellow-400' : 'text-green-400'}`}>
+                                                {(Number(flow.anomaly_score) || 0).toFixed(2)}
                                             </span>
                                         </td>
                                         <td>

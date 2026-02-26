@@ -123,6 +123,8 @@ export default function Upload() {
                     <thead>
                         <tr>
                             <th>Type</th>
+                            <th>Threat</th>
+                            <th>CVE</th>
                             <th>Source IP</th>
                             <th>Dest IP</th>
                             <th>Protocol</th>
@@ -133,12 +135,14 @@ export default function Upload() {
                     <tbody>
                         {rows.map((row) => (
                             <tr key={`${row.id}-${row.classification || row.src_ip}`}>
-                                <td className="text-xs text-slate-200">{row.classification || '—'}</td>
+                                <td className="text-xs text-slate-200" title={row.classification_reason || ''}>{row.classification || '—'}</td>
+                                <td className="text-xs text-amber-200">{row.threat_type || '—'}</td>
+                                <td className="text-xs font-mono text-cyan-300">{row.cve_refs ? String(row.cve_refs).replace(/,/g, ', ') : '—'}</td>
                                 <td className="font-mono text-xs">{row.src_ip || '—'}</td>
                                 <td className="font-mono text-xs">{row.dst_ip || '—'}</td>
                                 <td className="text-xs text-cyan-300">{row.protocol || '—'}</td>
                                 <td className="text-xs text-amber-300">{Math.round((row.anomaly_score || 0) * 100)}%</td>
-                                <td>
+                                <td title={row.classification_reason || ''}>
                                     <span className={`px-2 py-0.5 rounded-md text-xs font-medium badge-${(row.risk_level || 'low').toLowerCase()}`}>
                                         {row.risk_level || 'Low'} ({Math.round((row.risk_score || 0) * 100)}%)
                                     </span>

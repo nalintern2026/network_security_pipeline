@@ -258,6 +258,8 @@ export default function Anomalies() {
                                 <th>Dest IP</th>
                                 <th>Protocol</th>
                                 <th>Classification</th>
+                                <th>Threat Type</th>
+                                <th>CVE</th>
                                 <th>Anomaly Score</th>
                                 <th>Confidence</th>
                                 <th>Risk Level</th>
@@ -266,7 +268,7 @@ export default function Anomalies() {
                         <tbody>
                             {(data.top_anomalies || []).length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="text-center py-8 text-slate-400 text-sm">
+                                    <td colSpan={10} className="text-center py-8 text-slate-400 text-sm">
                                         No threats in current data for selected filters.
                                     </td>
                                 </tr>
@@ -280,7 +282,9 @@ export default function Anomalies() {
                                             {a.protocol}
                                         </span>
                                     </td>
-                                    <td className="text-xs font-semibold text-red-400">{a.classification}</td>
+                                    <td className="text-xs font-semibold text-red-400" title={a.classification_reason || ''}>{a.classification}</td>
+                                    <td className="text-xs text-amber-200">{a.threat_type || '—'}</td>
+                                    <td className="text-xs font-mono text-cyan-300">{a.cve_refs ? String(a.cve_refs).replace(/,/g, ', ') : '—'}</td>
                                     <td>
                                         <div className="flex items-center gap-2">
                                             <div className="h-2 w-16 rounded-full bg-dark-700 overflow-hidden">
@@ -295,7 +299,7 @@ export default function Anomalies() {
                                     </td>
                                     <td className="text-xs text-slate-400">{(((a.confidence ?? 0) * 100)).toFixed(0)}%</td>
                                     <td>
-                                        <span className={`px-2 py-0.5 rounded-md text-xs font-medium badge-${a.risk_level.toLowerCase()}`}>
+                                        <span className={`px-2 py-0.5 rounded-md text-xs font-medium badge-${(a.risk_level || 'low').toLowerCase()}`} title={a.classification_reason || ''}>
                                             {a.risk_level}
                                         </span>
                                     </td>

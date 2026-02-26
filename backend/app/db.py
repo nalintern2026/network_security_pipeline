@@ -15,6 +15,18 @@ db_lock = threading.Lock()
 # Database path
 DB_PATH = Path(__file__).resolve().parent.parent.parent.parent / "flows.db"
 
+# Protocol filter: DB may store number ("6") or name ("TCP") from different sources. Match both.
+PROTOCOL_FILTER_VALUES = {
+    "TCP": ("6", "TCP"),
+    "UDP": ("17", "UDP"),
+    "ICMP": ("1", "ICMP"),
+    "GRE": ("47", "GRE"),
+    "ESP": ("50", "ESP"),
+    "AH": ("51", "AH"),
+    "OSPF": ("89", "OSPF"),
+    "SCTP": ("132", "SCTP"),
+}
+
 
 def init_db():
     """Initialize database schema."""
@@ -57,7 +69,13 @@ def init_db():
             cursor.execute("ALTER TABLE flows ADD COLUMN analysis_id TEXT")
         if "upload_filename" not in existing_columns:
             cursor.execute("ALTER TABLE flows ADD COLUMN upload_filename TEXT")
-        
+        if "threat_type" not in existing_columns:
+            cursor.execute("ALTER TABLE flows ADD COLUMN threat_type TEXT")
+        if "cve_refs" not in existing_columns:
+            cursor.execute("ALTER TABLE flows ADD COLUMN cve_refs TEXT")
+        if "classification_reason" not in existing_columns:
+            cursor.execute("ALTER TABLE flows ADD COLUMN classification_reason TEXT")
+
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_timestamp ON flows(timestamp DESC);
         """)
@@ -92,8 +110,9 @@ def insert_flows(flows: List[Dict[str, Any]]) -> int:
                         id, analysis_id, upload_filename, timestamp, src_ip, dst_ip, src_port, dst_port, protocol,
                         duration, total_fwd_packets, total_bwd_packets, total_length_fwd,
                         total_length_bwd, flow_bytes_per_sec, flow_packets_per_sec,
-                        classification, confidence, anomaly_score, risk_score, risk_level, is_anomaly
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        classification, threat_type, cve_refs, classification_reason,
+                        confidence, anomaly_score, risk_score, risk_level, is_anomaly
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     flow.get('id'),
                     flow.get('analysis_id'),
@@ -112,6 +131,9 @@ def insert_flows(flows: List[Dict[str, Any]]) -> int:
                     flow.get('flow_bytes_per_sec'),
                     flow.get('flow_packets_per_sec'),
                     flow.get('classification'),
+                    flow.get('threat_type') or '',
+                    flow.get('cve_refs') or '',
+                    flow.get('classification_reason') or '',
                     flow.get('confidence'),
                     flow.get('anomaly_score'),
                     flow.get('risk_score'),
@@ -133,6 +155,7 @@ def get_flows(
     per_page: int = 20,
     classification: Optional[str] = None,
     risk_level: Optional[str] = None,
+    threat_type: Optional[str] = None,
     src_ip: Optional[str] = None,
     protocol: Optional[str] = None,
     analysis_id: Optional[str] = None,
@@ -154,12 +177,22 @@ def get_flows(
         if risk_level:
             where_clauses.append("LOWER(COALESCE(risk_level, '')) = LOWER(?)")
             params.append(risk_level.strip())
+        if threat_type:
+            where_clauses.append("LOWER(COALESCE(threat_type, '')) = LOWER(?)")
+            params.append(threat_type.strip())
         if src_ip:
             where_clauses.append("LOWER(COALESCE(src_ip, '')) LIKE LOWER(?)")
             params.append(f"%{src_ip.strip()}%")
         if protocol:
-            where_clauses.append("LOWER(COALESCE(protocol, '')) = LOWER(?)")
-            params.append(protocol.strip())
+            protocol_clean = protocol.strip()
+            if protocol_clean.upper() in PROTOCOL_FILTER_VALUES:
+                vals = PROTOCOL_FILTER_VALUES[protocol_clean.upper()]
+                placeholders = ", ".join("?" for _ in vals)
+                where_clauses.append(f"(COALESCE(protocol, '') IN ({placeholders}))")
+                params.extend(vals)
+            else:
+                where_clauses.append("LOWER(COALESCE(protocol, '')) = LOWER(?)")
+                params.append(protocol_clean)
         if analysis_id:
             where_clauses.append("LOWER(COALESCE(analysis_id, '')) = LOWER(?)")
             params.append(analysis_id.strip())
@@ -289,6 +322,7 @@ def get_dashboard_stats() -> Dict[str, Any]:
 def get_traffic_trends(
     classification: Optional[str] = None,
     risk_level: Optional[str] = None,
+    threat_type: Optional[str] = None,
     src_ip: Optional[str] = None,
     protocol: Optional[str] = None,
     points: int = 72,
@@ -313,12 +347,22 @@ def get_traffic_trends(
         if risk_level:
             where_clauses.append("LOWER(COALESCE(risk_level, '')) = LOWER(?)")
             params.append(risk_level.strip())
+        if threat_type:
+            where_clauses.append("LOWER(COALESCE(threat_type, '')) = LOWER(?)")
+            params.append(threat_type.strip())
         if src_ip:
             where_clauses.append("LOWER(COALESCE(src_ip, '')) LIKE LOWER(?)")
             params.append(f"%{src_ip.strip()}%")
         if protocol:
-            where_clauses.append("LOWER(COALESCE(protocol, '')) = LOWER(?)")
-            params.append(protocol.strip())
+            protocol_clean = protocol.strip()
+            if protocol_clean.upper() in PROTOCOL_FILTER_VALUES:
+                vals = PROTOCOL_FILTER_VALUES[protocol_clean.upper()]
+                placeholders = ", ".join("?" for _ in vals)
+                where_clauses.append(f"(COALESCE(protocol, '') IN ({placeholders}))")
+                params.extend(vals)
+            else:
+                where_clauses.append("LOWER(COALESCE(protocol, '')) = LOWER(?)")
+                params.append(protocol_clean)
 
         where_sql = " AND ".join(where_clauses)
         where_sql = f"WHERE {where_sql}" if where_sql else ""
