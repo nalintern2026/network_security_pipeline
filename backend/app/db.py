@@ -75,6 +75,14 @@ def init_db():
             cursor.execute("ALTER TABLE flows ADD COLUMN cve_refs TEXT")
         if "classification_reason" not in existing_columns:
             cursor.execute("ALTER TABLE flows ADD COLUMN classification_reason TEXT")
+        if "monitor_type" not in existing_columns:
+            cursor.execute("ALTER TABLE flows ADD COLUMN monitor_type TEXT DEFAULT 'passive'")
+
+        # analysis_history: ensure monitor_type exists (already in schema; add if missing for old DBs)
+        cursor.execute("PRAGMA table_info(analysis_history)")
+        ah_columns = {row[1] for row in cursor.fetchall()}
+        if "monitor_type" not in ah_columns:
+            cursor.execute("ALTER TABLE analysis_history ADD COLUMN monitor_type TEXT DEFAULT 'passive'")
 
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_timestamp ON flows(timestamp DESC);
@@ -317,15 +325,17 @@ def get_analysis_report(analysis_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def insert_flows(flows: List[Dict[str, Any]]) -> int:
-    """Insert flows into database. Returns count of inserted flows."""
+def insert_flows(flows: List[Dict[str, Any]], monitor_type: str = "passive") -> int:
+    """Insert flows into database. Returns count of inserted flows.
+    monitor_type: 'passive' for file uploads, 'active' for realtime monitoring."""
     if not flows:
         return 0
-    
+    mt = monitor_type or "passive"
+
     with db_lock:
         conn = sqlite3.connect(str(DB_PATH))
         cursor = conn.cursor()
-        
+
         inserted = 0
         for flow in flows:
             try:
@@ -335,8 +345,8 @@ def insert_flows(flows: List[Dict[str, Any]]) -> int:
                         duration, total_fwd_packets, total_bwd_packets, total_length_fwd,
                         total_length_bwd, flow_bytes_per_sec, flow_packets_per_sec,
                         classification, threat_type, cve_refs, classification_reason,
-                        confidence, anomaly_score, risk_score, risk_level, is_anomaly
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        confidence, anomaly_score, risk_score, risk_level, is_anomaly, monitor_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     flow.get('id'),
                     flow.get('analysis_id'),
@@ -363,6 +373,7 @@ def insert_flows(flows: List[Dict[str, Any]]) -> int:
                     flow.get('risk_score'),
                     flow.get('risk_level'),
                     flow.get('is_anomaly', False),
+                    flow.get('monitor_type', mt),
                 ))
                 inserted += 1
             except Exception as e:
@@ -445,14 +456,35 @@ def get_flows(
         return flows, total
 
 
-def get_dashboard_stats() -> Dict[str, Any]:
-    """Get aggregated statistics for dashboard."""
-    
+def get_flow_counts_by_monitor_type() -> Dict[str, int]:
+    """Return count of flows per monitor_type for debugging."""
+    with db_lock:
+        conn = sqlite3.connect(str(DB_PATH))
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COALESCE(monitor_type, 'passive') as mt, COUNT(*) as cnt
+            FROM flows GROUP BY mt
+        """)
+        result = {row[0]: row[1] for row in cursor.fetchall()}
+        conn.close()
+    return result
+
+
+def get_dashboard_stats(monitor_type: Optional[str] = None) -> Dict[str, Any]:
+    """Get aggregated statistics for dashboard. Optionally filter by monitor_type: 'passive' or 'active'."""
+    # Build WHERE for monitor_type (COALESCE so legacy rows without column count as passive)
+    if monitor_type and str(monitor_type).strip().lower() in ("passive", "active"):
+        where_monitor = " WHERE COALESCE(monitor_type, 'passive') = ? "
+        params = [str(monitor_type).strip().lower()]
+    else:
+        where_monitor = ""
+        params = []
+
     with db_lock:
         conn = sqlite3.connect(str(DB_PATH))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        
+
         # Get basic stats
         cursor.execute("""
             SELECT 
@@ -460,73 +492,81 @@ def get_dashboard_stats() -> Dict[str, Any]:
                 SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) as total_anomalies,
                 AVG(risk_score) as avg_risk_score
             FROM flows
-        """)
+            """ + where_monitor, params)
         stats = dict(cursor.fetchone())
-        
+
         total_flows = stats['total_flows'] or 0
         total_anomalies = stats['total_anomalies'] or 0
         avg_risk_score = stats['avg_risk_score'] or 0.0
-        
+
         # Get attack distribution
         cursor.execute("""
             SELECT classification, COUNT(*) as count
             FROM flows
+            """ + where_monitor + """
             GROUP BY classification
-        """)
+        """, params)
         attack_dist = {row['classification']: row['count'] for row in cursor.fetchall()}
-        
+
         # Get risk distribution
         cursor.execute("""
             SELECT risk_level, COUNT(*) as count
             FROM flows
+            """ + where_monitor + """
             GROUP BY risk_level
-        """)
+        """, params)
         risk_dist_db = {row['risk_level']: row['count'] for row in cursor.fetchall()}
         risk_dist = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
         risk_dist.update(risk_dist_db)
-        
+
         # Get timeline (last 24 hours)
+        timeline_where = "WHERE timestamp > datetime('now', '-24 hours')"
+        if where_monitor.strip():
+            timeline_where += " AND " + where_monitor.replace("WHERE", "").strip()
         cursor.execute("""
             SELECT 
                 strftime('%H:00', timestamp) as hour,
                 COUNT(*) as total,
                 SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) as anomalies
             FROM flows
-            WHERE timestamp > datetime('now', '-24 hours')
+            """ + timeline_where + """
             GROUP BY strftime('%H:00', timestamp)
             ORDER BY hour
-        """)
+        """, params)
         timeline = [dict(row) for row in cursor.fetchall()]
-        
+
         # Get protocol distribution
         cursor.execute("""
             SELECT protocol, COUNT(*) as count
             FROM flows
+            """ + where_monitor + """
             GROUP BY protocol
-        """)
+        """, params)
         protocols = {row['protocol']: row['count'] for row in cursor.fetchall()}
-        
-        # Get top IPs
+
+        # Get top IPs (append AND src_ip IS NOT NULL to monitor filter if present)
+        src_where = (where_monitor.strip() + " AND src_ip IS NOT NULL") if where_monitor.strip() else " WHERE src_ip IS NOT NULL"
         cursor.execute("""
             SELECT src_ip, COUNT(*) as count
             FROM flows
-            WHERE src_ip IS NOT NULL
+            """ + src_where + """
             GROUP BY src_ip
             ORDER BY count DESC
             LIMIT 10
-        """)
+        """, params)
         top_sources = [{"ip": row['src_ip'], "count": row['count']} for row in cursor.fetchall()]
-        
+
+        dst_where = (where_monitor.strip() + " AND dst_ip IS NOT NULL") if where_monitor.strip() else " WHERE dst_ip IS NOT NULL"
         cursor.execute("""
             SELECT dst_ip, COUNT(*) as count
             FROM flows
-            WHERE dst_ip IS NOT NULL
+            """ + dst_where + """
             GROUP BY dst_ip
             ORDER BY count DESC
             LIMIT 10
-        """)
+        """, params)
         top_destinations = [{"ip": row['dst_ip'], "count": row['count']} for row in cursor.fetchall()]
-        
+
         conn.close()
         
         return {

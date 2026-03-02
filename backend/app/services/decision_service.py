@@ -414,6 +414,171 @@ class DecisionEngine:
             if should_cleanup_csv and os.path.exists(csv_path):
                 os.remove(csv_path)
 
+    def classify_flows(self, flows_raw: list) -> list:
+        """
+        Classify raw flow dicts (from packet capture). Reuses RF, IF, scaler, threat inference.
+        flows_raw: list of dicts with src_ip, dst_ip, src_port, dst_port, protocol,
+                   duration, total_fwd_packets, total_bwd_packets, total_length_fwd,
+                   total_length_bwd, flow_bytes_per_sec, flow_packets_per_sec, syn_flag_count (optional).
+        Returns: list of enriched flow dicts with classification, risk_score, etc.
+        """
+        if not flows_raw:
+            return []
+
+        def _safe_int(v):
+            if v is None or (isinstance(v, float) and np.isnan(v)):
+                return None
+            try:
+                return int(float(v))
+            except Exception:
+                return None
+
+        def _safe_float(v):
+            if v is None or (isinstance(v, float) and np.isnan(v)):
+                return None
+            try:
+                return float(v)
+            except Exception:
+                return None
+
+        # Map our flow dict keys to CIC-style column names
+        rows = []
+        for f in flows_raw:
+            row = {
+                "Source IP": f.get("src_ip", "0.0.0.0"),
+                "Destination IP": f.get("dst_ip", "0.0.0.0"),
+                "Source Port": f.get("src_port"),
+                "Destination Port": f.get("dst_port"),
+                "Protocol": f.get("protocol", "TCP"),
+                "Flow Duration": f.get("duration", 0),
+                "Total Fwd Packets": f.get("total_fwd_packets", 0),
+                "Total Backward Packets": f.get("total_bwd_packets", 0),
+                "Total Length of Fwd Packets": f.get("total_length_fwd", 0),
+                "Total Length of Bwd Packets": f.get("total_length_bwd", 0),
+                "Flow Bytes/s": f.get("flow_bytes_per_sec", 0),
+                "Flow Packets/s": f.get("flow_packets_per_sec", 0),
+                "SYN Flag Count": f.get("syn_flag_count", 0),
+            }
+            rows.append(row)
+
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return []
+
+        # Fill NaN in numeric columns so clean_data doesn't drop rows
+        for col in df.select_dtypes(include=[np.number]).columns:
+            df[col] = df[col].fillna(0)
+        df = clean_data(df)
+        if df.empty:
+            return []
+
+        # Fill missing feature columns with 0
+        if self.feature_names:
+            for col in self.feature_names:
+                if col not in df.columns:
+                    df[col] = 0
+            df_features = df[self.feature_names]
+        else:
+            df_features = df.select_dtypes(include=[np.number])
+            for col in df_features.columns:
+                if col not in df.columns:
+                    df[col] = 0
+            df_features = df.select_dtypes(include=[np.number])
+
+        if self.scaler:
+            X_scaled = self.scaler.transform(df_features)
+        else:
+            X_scaled = df_features.values
+
+        if self.rf_model and self.label_encoder:
+            y_pred = self.rf_model.predict(X_scaled)
+            y_prob = self.rf_model.predict_proba(X_scaled)
+            confidences = np.max(y_prob, axis=1)
+            labels = self.label_encoder.inverse_transform(y_pred)
+        else:
+            labels = ["BENIGN"] * len(df)
+            confidences = [0.5] * len(df)
+
+        if self.if_model:
+            anomaly_scores_raw = self.if_model.decision_function(X_scaled)
+            anomaly_scores = 0.5 - anomaly_scores_raw
+            anomaly_scores = np.clip(anomaly_scores, 0, 1)
+            is_anomaly = self.if_model.predict(X_scaled) == -1
+        else:
+            anomaly_scores = np.zeros(len(df))
+            is_anomaly = np.array([False] * len(df))
+
+        result = []
+        for i in range(len(df)):
+            original_lbl = str(labels[i])
+            lbl = original_lbl
+            conf = float(confidences[i])
+            anom_score = float(anomaly_scores[i])
+            is_anom = bool(is_anomaly[i])
+
+            if is_anom and lbl == "BENIGN":
+                flow_features = {
+                    "duration": df.iloc[i].get("Flow Duration", 0),
+                    "flow_bytes_per_sec": df.iloc[i].get("Flow Bytes/s", 0),
+                    "flow_packets_per_sec": df.iloc[i].get("Flow Packets/s", 0),
+                    "total_fwd_packets": df.iloc[i].get("Total Fwd Packets", 0),
+                    "total_bwd_packets": df.iloc[i].get("Total Backward Packets", 0),
+                    "total_length_fwd": df.iloc[i].get("Total Length of Fwd Packets", 0),
+                    "total_length_bwd": df.iloc[i].get("Total Length of Bwd Packets", 0),
+                    "dst_port": df.iloc[i].get("Destination Port"),
+                    "protocol": df.iloc[i].get("Protocol"),
+                    "syn_flag_cnt": df.iloc[i].get("SYN Flag Count", 0),
+                }
+                lbl = infer_anomaly_threat_type(flow_features, anom_score)
+
+            if lbl == "BENIGN":
+                risk = anom_score * 0.6
+            else:
+                if self.rf_model and self.label_encoder:
+                    risk = (conf * 0.7) + (anom_score * 0.3)
+                else:
+                    pseudo_conf = max(conf, min(1.0, 0.55 + (0.45 * anom_score)))
+                    risk = (pseudo_conf * 0.6) + (anom_score * 0.4) + 0.15
+
+            risk = float(np.clip(risk, 0, 1))
+            risk_level = risk_level_from_score(risk)
+            threat_info = get_threat_info(lbl)
+            threat_type_val = (threat_info.get("threat_type") or lbl or "Unknown").strip()
+            cve_refs_str = ",".join(threat_info["cve_refs"]) if threat_info.get("cve_refs") else ""
+            classification_reason = build_classification_reason(
+                lbl, not (is_anom and original_lbl == "BENIGN"), conf, anom_score, risk_level
+            )
+
+            result.append({
+                "id": str(uuid.uuid4())[:8],
+                "analysis_id": None,
+                "upload_filename": "realtime",
+                "src_ip": str(df.iloc[i].get("Source IP", "N/A")),
+                "dst_ip": str(df.iloc[i].get("Destination IP", "N/A")),
+                "src_port": _safe_int(df.iloc[i].get("Source Port")),
+                "dst_port": _safe_int(df.iloc[i].get("Destination Port")),
+                "protocol": str(df.iloc[i].get("Protocol", "Unknown")),
+                "duration": _safe_float(df.iloc[i].get("Flow Duration")),
+                "total_fwd_packets": _safe_int(df.iloc[i].get("Total Fwd Packets")),
+                "total_bwd_packets": _safe_int(df.iloc[i].get("Total Backward Packets")),
+                "total_length_fwd": _safe_int(df.iloc[i].get("Total Length of Fwd Packets")),
+                "total_length_bwd": _safe_int(df.iloc[i].get("Total Length of Bwd Packets")),
+                "flow_bytes_per_sec": _safe_float(df.iloc[i].get("Flow Bytes/s")),
+                "flow_packets_per_sec": _safe_float(df.iloc[i].get("Flow Packets/s")),
+                "timestamp": pd.Timestamp.now().isoformat(),
+                "classification": lbl,
+                "threat_type": threat_type_val,
+                "cve_refs": cve_refs_str,
+                "classification_reason": classification_reason,
+                "confidence": conf,
+                "anomaly_score": anom_score,
+                "risk_score": risk,
+                "risk_level": risk_level,
+                "is_anomaly": is_anom,
+            })
+
+        return result
+
     def _convert_pcap_to_csv(self, pcap_path: str, process_id: str) -> str:
         """Run cicflowmeter to convert PCAP to CSV."""
         output_dir = TEMP_DIR / process_id

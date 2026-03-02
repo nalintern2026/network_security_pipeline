@@ -12,12 +12,14 @@ import {
     Activity,
     Wifi,
     History as HistoryIcon,
+    Radio,
 } from 'lucide-react';
 import { checkHealth, isUploadInProgress } from '../services/api';
 
 const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/upload', label: 'Upload', icon: Upload },
+    { path: '/active', label: 'Active Monitoring', icon: Radio },
     { path: '/history', label: 'History', icon: HistoryIcon },
     { path: '/traffic', label: 'Traffic Analysis', icon: Network },
     { path: '/anomalies', label: 'Anomalies', icon: AlertTriangle },

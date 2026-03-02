@@ -8,6 +8,7 @@ import TrafficAnalysis from './pages/TrafficAnalysis';
 import Anomalies from './pages/Anomalies';
 import ModelPerformance from './pages/ModelPerformance';
 import SBOMSecurity from './pages/SBOMSecurity';
+import ActiveMonitoring from './pages/ActiveMonitoring';
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
           <Route path="/traffic" element={<TrafficAnalysis />} />
           <Route path="/anomalies" element={<Anomalies />} />
           <Route path="/models" element={<ModelPerformance />} />
+          <Route path="/active" element={<ActiveMonitoring />} />
           <Route path="/security" element={<SBOMSecurity />} />
         </Routes>
       </Layout>

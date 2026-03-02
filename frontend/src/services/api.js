@@ -28,11 +28,13 @@ export const checkHealth = () => {
     return api.get('/health', { timeout: HEALTH_TIMEOUT_MS });
 };
 
-// Dashboard
-export const getDashboardStats = () => {
-    const endpoint = '/dashboard/stats';
-    console.log(`📡 Making GET request to ${API_BASE}${endpoint}`);
-    return api.get(endpoint);
+// Dashboard (monitorType: 'passive' | 'active' to filter by source)
+export const getDashboardStats = (monitorType = '') => {
+    const params = monitorType ? { monitor_type: monitorType } : {};
+    return api.get('/dashboard/stats', {
+        params: { ...params, _: Date.now() },
+        headers: { 'Cache-Control': 'no-cache' },
+    });
 };
 
 // Traffic
@@ -72,5 +74,12 @@ export const analyzeSBOMFile = (file) => {
     });
 };
 export const downloadSBOM = () => `${API_BASE}/security/sbom/download`;
+
+// Active / Realtime Monitoring
+export const startRealtimeMonitor = (iface = '') =>
+    api.post('/realtime/start', null, { params: { interface: iface } });
+export const stopRealtimeMonitor = () => api.post('/realtime/stop');
+export const getRealtimeStatus = () => api.get('/realtime/status');
+export const getRealtimeInterfaces = () => api.get('/realtime/interfaces');
 
 export default api;

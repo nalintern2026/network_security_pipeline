@@ -226,9 +226,9 @@ async def health_check():
 
 # ── Dashboard Stats ─────────────────────────────────────────────────────
 @app.get("/api/dashboard/stats")
-async def dashboard_stats():
-    """Get dashboard statistics from database."""
-    return db.get_dashboard_stats()
+async def dashboard_stats(monitor_type: Optional[str] = None):
+    """Get dashboard statistics. Optional monitor_type: 'passive' (uploads) or 'active' (realtime)."""
+    return db.get_dashboard_stats(monitor_type=monitor_type)
 
 
 # ── Classification criteria (thresholds & CVE mapping) ────────────────────
@@ -504,7 +504,7 @@ async def upload_file(file: UploadFile = File(..., alias="file")):
             file_type,
             include_flows=False,
             source_filename=filename,
-            on_chunk_processed=db.insert_flows
+            on_chunk_processed=lambda flows: db.insert_flows(flows, monitor_type="passive"),
         )
         
         if "error" in result:
@@ -516,7 +516,7 @@ async def upload_file(file: UploadFile = File(..., alias="file")):
         db.insert_analysis(
             analysis_id=result["id"],
             filename=filename,
-            monitor_type="Static Monitoring",
+            monitor_type="passive",
             file_size=file_size,
             total_flows=result.get("total_flows", 0),
             anomaly_count=result.get("anomaly_count", 0),
@@ -564,6 +564,53 @@ async def get_history_report(analysis_id: str):
     if not report:
         raise HTTPException(status_code=404, detail="Analysis not found")
     return report
+
+
+# ── Active / Realtime Monitoring ──────────────────────────────────────────
+from app.services.realtime_service import realtime_monitor
+
+
+@app.post("/api/realtime/start")
+async def start_realtime_monitor(interface: str = ""):
+    """Start active packet monitoring on the given interface. Run backend with sudo for sniffing."""
+    if realtime_monitor.running:
+        return {"status": "error", "message": "Already running"}
+    # Run in daemon thread so we never block the event loop
+    import threading
+    t = threading.Thread(target=realtime_monitor.start, args=(interface or "",), daemon=True)
+    t.start()
+    return {"status": "started", "interface": interface or "default"}
+
+
+@app.post("/api/realtime/stop")
+async def stop_realtime_monitor():
+    """Stop active monitoring."""
+    realtime_monitor.stop()
+    return {"status": "stopped"}
+
+
+@app.get("/api/realtime/status")
+async def get_realtime_status():
+    """Get monitor status (running, interface, capture count)."""
+    status = realtime_monitor.get_status()
+    # Add flow counts so UI can verify active flows exist
+    try:
+        flows_by_type = db.get_flow_counts_by_monitor_type()
+        status["flow_counts"] = flows_by_type
+    except Exception:
+        status["flow_counts"] = {}
+    return status
+
+
+@app.get("/api/realtime/interfaces")
+async def get_realtime_interfaces():
+    """List available network interfaces for packet capture."""
+    try:
+        import psutil
+        ifaces = list(psutil.net_if_addrs().keys())
+        return {"interfaces": sorted(ifaces)}
+    except ImportError:
+        return {"interfaces": ["lo", "eth0", "enp0s3", "wlan0"]}
 
 
 # ── SBOM Security ────────────────────────────────────────────────────────

@@ -94,6 +94,7 @@ Network/
 | `/traffic` | `TrafficAnalysis` | Paginated flows, filters, trend charts |
 | `/anomalies` | `Anomalies` | Threat-focused view: score distribution, attack breakdown, top threats |
 | `/models` | `ModelPerformance` | ML metrics, confusion matrix, ROC AUC, live stats |
+| `/active` | `ActiveMonitoring` | Live packet capture, start/stop, interface selector, status |
 | `/security` | `SBOMSecurity` | SBOM upload, components, vulnerabilities, remediation |
 
 ---
@@ -222,7 +223,20 @@ Network/
 
 ---
 
-### 4.8 SBOM Security
+### 4.8 Active / Realtime Monitoring
+
+| Method | Endpoint | Data Source | Used By |
+|--------|----------|-------------|---------|
+| POST | `/api/realtime/start` | `realtime_monitor.start(interface)` | `ActiveMonitoring` |
+| POST | `/api/realtime/stop` | `realtime_monitor.stop()` | `ActiveMonitoring` |
+| GET | `/api/realtime/status` | `realtime_monitor.get_status()` | `ActiveMonitoring` |
+| GET | `/api/realtime/interfaces` | `psutil.net_if_addrs()` | `ActiveMonitoring` |
+
+**Flow:** User selects interface → Start → background thread captures packets (5s windows) → builds flows → classifies via decision engine → inserts into DB with `monitor_type=active`. Dashboard aggregates all flows.
+
+---
+
+### 4.9 SBOM Security
 
 | Method | Endpoint | Data Source | Used By |
 |--------|----------|-------------|---------|
@@ -276,6 +290,7 @@ Network/
 | **TrafficAnalysis** | `GET /api/traffic/flows` | `GET /api/traffic/trends` | Flows table, trend charts |
 | **Anomalies** | `GET /api/anomalies` | — | Threat stats, top anomalies |
 | **ModelPerformance** | `GET /api/models/metrics` | — | Model metrics, live stats |
+| **ActiveMonitoring** | `POST /api/realtime/start` | `GET /api/realtime/status`, `GET /api/realtime/interfaces` | Start/stop, status, interface list |
 | **SBOMSecurity** | `POST /api/security/sbom/analyze` | `GET /api/security/sbom`, `GET /api/security/vulnerabilities` | SBOM, vulns, download |
 
 ---
@@ -285,7 +300,13 @@ Network/
 ### Decision Engine (`decision_service.py`)
 - Loads Random Forest (supervised) + Isolation Forest (unsupervised) + Scaler
 - `analyze_file(path, file_type)` → parses PCAP/CSV, extracts features, classifies, assigns risk
+- `classify_flows(flows_raw)` → classifies raw flow dicts (from packet capture) for realtime monitoring
 - Output: flows with `classification`, `anomaly_score`, `risk_score`, `risk_level`, `threat_type`, `cve_refs`
+
+### Realtime Monitor (`realtime_service.py`)
+- `capture_packets(interface, duration)` → scapy sniff
+- `build_flows_from_packets(packets)` → group by 5-tuple, compute stats
+- `RealtimeMonitor` → background thread: capture → build → classify → insert (monitor_type=active)
 
 ### SBOM Service (`sbom_service.py`)
 - Parses: requirements.txt, package.json, package-lock.json, yarn.lock, Pipfile, poetry.lock, Gemfile, Gemfile.lock, go.mod, Cargo.toml, Cargo.lock

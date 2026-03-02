@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getDashboardStats } from '../services/api';
 import {
     Activity,
@@ -23,67 +23,46 @@ export default function Dashboard() {
     const [error, setError] = useState(null);
     const [refreshing, setRefreshing] = useState(false);
     const [lastFetch, setLastFetch] = useState(null);
+    const [monitorView, setMonitorView] = useState('passive'); // 'passive' | 'active'
 
-    const fetchStats = async () => {
+    const fetchStats = useCallback(async () => {
         try {
             setError(null);
-            console.log('🔄 Fetching dashboard stats...');
-            console.log('TIME:', new Date().toISOString());
-            const response = await getDashboardStats();
-            console.log('📊 FULL Response object:', JSON.stringify(response, null, 2));
-            console.log('response.data:', response.data);
-            console.log('response.status:', response.status);
-            console.log('response.headers:', response.headers);
-            
+            const response = await getDashboardStats(monitorView || undefined);
             const data = response.data;
-            console.log('📈 Data received:', data);
-            console.log('DATA TYPE:', typeof data);
-            console.log('DATA KEYS:', Object.keys(data));
-            console.log('total_flows =', data.total_flows);
-            console.log('Setting stats to:', data);
-            
             setStats(data);
             setLastFetch(new Date().toLocaleTimeString());
             setLoading(false);
-            console.log('✅ Stats fetched and set successfully');
         } catch (err) {
-            console.error('❌ Failed to fetch dashboard stats:', err);
-            console.error('Error details:', err.response?.data || err.message);
-            console.error('Full error:', err);
             setError(err.response?.data?.detail || err.message || 'Failed to fetch data');
             setStats(null);
             setLoading(false);
         }
-    };
+    }, [monitorView]);
 
-    // Fetch on mount
+    // Fetch on mount and when toggle changes
     useEffect(() => {
-        console.log('🎬 Dashboard component mounted');
         fetchStats();
-    }, []);
+    }, [fetchStats]);
 
-    // Auto-refresh every 3 seconds (more frequent to see updates)
+    // Auto-refresh every 5 seconds (live data for active view)
     useEffect(() => {
         const interval = setInterval(() => {
-            console.log('⏰ Auto-refresh triggered');
             fetchStats();
-        }, 3000);
+        }, 5000);
         return () => clearInterval(interval);
-    }, []);
+    }, [fetchStats]);
 
     const handleManualRefresh = async () => {
-        console.log('👆 Manual refresh triggered');
         setRefreshing(true);
         await fetchStats();
         setRefreshing(false);
     };
 
     if (loading && !stats) {
-        console.log('🔄 Showing LoadingSkeleton - loading:', loading, 'stats:', stats);
         return <LoadingSkeleton />;
     }
 
-    // Use actual data or empty state
     const statsData = stats || {
         total_flows: 0,
         total_anomalies: 0,
@@ -95,30 +74,58 @@ export default function Dashboard() {
         protocols: {},
     };
 
-    console.log('🎨 RENDER - statsData:', statsData);
-    console.log('🎨 RENDER - stats was:', stats);
-    console.log('🎨 RENDER - stats || defaultObject result:', statsData);
-
     const riskPercent = Math.round((statsData.avg_risk_score || 0) * 100);
-    console.log('🎨 RENDER - riskPercent:', riskPercent);
 
     return (
         <div className="space-y-6">
-            {/* Header with Refresh Button */}
-            <div className="flex justify-between items-center">
-                <div>
-                    <h1 className="text-2xl font-bold gradient-text">Network Dashboard</h1>
-                    <p className="text-xs text-slate-500 mt-1">
+            {/* Toggle: Passive / Active */}
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">View</span>
+                    <div className="flex rounded-xl bg-dark-800 border border-white/5 p-0.5">
+                        <button
+                            type="button"
+                            onClick={() => setMonitorView('passive')}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${monitorView === 'passive'
+                                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                                : 'text-slate-400 hover:text-white'}`}
+                        >
+                            Passive
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setMonitorView('active')}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${monitorView === 'active'
+                                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                                : 'text-slate-400 hover:text-white'}`}
+                        >
+                            Active
+                        </button>
+                    </div>
+                    <span className="text-xs text-slate-500">
+                        {monitorView === 'passive' ? 'File uploads' : 'Live monitoring'}
+                    </span>
+                </div>
+                <div className="flex items-center gap-3">
+                    <p className="text-xs text-slate-500">
+                        {monitorView === 'active' && (
+                            <span className="text-cyan-400 font-medium">Live • </span>
+                        )}
                         Last updated: {lastFetch || 'Loading...'} | Total Flows: {statsData.total_flows}
                     </p>
+                    <button
+                        onClick={handleManualRefresh}
+                        disabled={refreshing}
+                        className="px-4 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-sm hover:bg-cyan-500/20 transition-colors disabled:opacity-50"
+                    >
+                        {refreshing ? '⟳ Refreshing...' : '🔄 Refresh'}
+                    </button>
                 </div>
-                <button
-                    onClick={handleManualRefresh}
-                    disabled={refreshing}
-                    className="px-4 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-sm hover:bg-cyan-500/20 transition-colors disabled:opacity-50"
-                >
-                    {refreshing ? '⟳ Refreshing...' : '🔄 Refresh'}
-                </button>
+            </div>
+
+            {/* Header */}
+            <div className="flex justify-between items-center">
+                <h1 className="text-2xl font-bold gradient-text">Network Dashboard</h1>
             </div>
 
             {error && (
@@ -130,7 +137,11 @@ export default function Dashboard() {
             {statsData.total_flows === 0 && !error && (
                 <div className="glass-card p-8 text-center border-yellow-500/20 bg-yellow-500/5">
                     <p className="text-yellow-300 mb-2">📤 No data yet</p>
-                    <p className="text-sm text-slate-400">Upload a network file on the Upload page to see analysis results here</p>
+                    <p className="text-sm text-slate-400">
+                        {monitorView === 'passive'
+                            ? 'Upload a network file on the Upload page to see analysis results here.'
+                            : 'Start Active Monitoring (use Default/lo), then use the app to generate traffic. Backend must run with sudo.'}
+                    </p>
                 </div>
             )}
 
