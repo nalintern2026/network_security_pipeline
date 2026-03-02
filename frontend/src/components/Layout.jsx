@@ -11,12 +11,14 @@ import {
     X,
     Activity,
     Wifi,
+    History as HistoryIcon,
 } from 'lucide-react';
-import { checkHealth } from '../services/api';
+import { checkHealth, isUploadInProgress } from '../services/api';
 
 const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/upload', label: 'Upload', icon: Upload },
+    { path: '/history', label: 'History', icon: HistoryIcon },
     { path: '/traffic', label: 'Traffic Analysis', icon: Network },
     { path: '/anomalies', label: 'Anomalies', icon: AlertTriangle },
     { path: '/models', label: 'Model Performance', icon: BarChart3 },
@@ -40,7 +42,11 @@ export default function Layout({ children }) {
             await checkHealth();
             setApiStatus('connected');
         } catch {
-            setApiStatus('disconnected');
+            if (isUploadInProgress()) {
+                setApiStatus('busy');
+            } else {
+                setApiStatus('disconnected');
+            }
         }
     };
 
@@ -120,7 +126,9 @@ export default function Layout({ children }) {
                                             ? 'bg-green-400'
                                             : apiStatus === 'disconnected'
                                                 ? 'bg-red-400'
-                                                : 'bg-yellow-400 animate-pulse'
+                                                : apiStatus === 'busy'
+                                                    ? 'bg-amber-400 animate-pulse'
+                                                    : 'bg-yellow-400 animate-pulse'
                                         }`}
                                 />
                                 {apiStatus === 'connected' && (
@@ -130,7 +138,7 @@ export default function Layout({ children }) {
                             {sidebarOpen && (
                                 <div className="animate-fade-in flex flex-col gap-0.5">
                                     <p className="text-xs font-medium text-slate-300">
-                                        {apiStatus === 'connected' ? 'API Connected' : apiStatus === 'disconnected' ? 'API Offline' : 'Checking...'}
+                                        {apiStatus === 'connected' ? 'API Connected' : apiStatus === 'disconnected' ? 'API Offline' : apiStatus === 'busy' ? 'Processing upload...' : 'Checking...'}
                                     </p>
                                     <p className="text-[10px] text-slate-500">
                                         {apiStatus === 'disconnected' ? (
@@ -159,7 +167,7 @@ export default function Layout({ children }) {
                     <div className="flex items-center gap-3">
                         <Activity size={16} className="text-cyan-400" />
                         <h2 className="text-sm font-semibold text-slate-200">
-                            {navItems.find(n => n.path === location.pathname)?.label || 'Dashboard'}
+                            {navItems.find(n => n.path === location.pathname)?.label || (location.pathname.startsWith('/history/') && location.pathname !== '/history' ? 'Report' : 'Dashboard')}
                         </h2>
                     </div>
                     <div className="flex items-center gap-4">
@@ -182,6 +190,13 @@ export default function Layout({ children }) {
                         >
                             Retry Connection
                         </button>
+                    </div>
+                )}
+                {apiStatus === 'busy' && (
+                    <div className="mx-6 mt-4 rounded-xl border border-cyan-500/25 bg-cyan-500/10 px-4 py-3 flex items-center gap-3">
+                        <p className="text-xs text-cyan-200">
+                            Processing your upload. Large files can take several minutes; the page will update when done.
+                        </p>
                     </div>
                 )}
 

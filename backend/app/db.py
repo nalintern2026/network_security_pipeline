@@ -88,9 +88,233 @@ def init_db():
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_analysis_id ON flows(analysis_id);
         """)
+
+        # Analysis history: metadata for each upload/analysis (persists across refresh)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS analysis_history (
+                analysis_id TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                monitor_type TEXT NOT NULL DEFAULT 'Static Monitoring',
+                uploaded_at TEXT NOT NULL,
+                file_size INTEGER,
+                total_flows INTEGER DEFAULT 0,
+                anomaly_count INTEGER DEFAULT 0,
+                avg_risk_score REAL DEFAULT 0,
+                attack_distribution TEXT,
+                risk_distribution TEXT,
+                report_details TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_analysis_history_uploaded_at ON analysis_history(uploaded_at DESC);
+        """)
         
         conn.commit()
         conn.close()
+
+
+def insert_analysis(
+    analysis_id: str,
+    filename: str,
+    monitor_type: str,
+    file_size: Optional[int],
+    total_flows: int,
+    anomaly_count: int,
+    avg_risk_score: float,
+    attack_distribution: Dict[str, int],
+    risk_distribution: Dict[str, int],
+    report_details: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Insert or replace analysis metadata into history."""
+    with db_lock:
+        conn = sqlite3.connect(str(DB_PATH))
+        cursor = conn.cursor()
+        uploaded_at = datetime.utcnow().isoformat() + "Z"
+        cursor.execute("""
+            INSERT OR REPLACE INTO analysis_history (
+                analysis_id, filename, monitor_type, uploaded_at, file_size,
+                total_flows, anomaly_count, avg_risk_score,
+                attack_distribution, risk_distribution, report_details
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            analysis_id,
+            filename,
+            monitor_type or "Static Monitoring",
+            uploaded_at,
+            file_size,
+            total_flows,
+            anomaly_count,
+            avg_risk_score,
+            json.dumps(attack_distribution or {}),
+            json.dumps(risk_distribution or {}),
+            json.dumps(report_details or {}),
+        ))
+        conn.commit()
+        conn.close()
+
+
+def get_analysis_history(limit: int = 100) -> List[Dict[str, Any]]:
+    """Get all analyses ordered by upload time (newest first). Includes fallback from flows for pre-feature uploads."""
+    with db_lock:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT analysis_id, filename, monitor_type, uploaded_at, file_size,
+                   total_flows, anomaly_count, avg_risk_score,
+                   attack_distribution, risk_distribution, report_details
+            FROM analysis_history
+            ORDER BY uploaded_at DESC
+            LIMIT ?
+        """, (limit,))
+        rows = list(cursor.fetchall())
+
+        # Fallback: analyses from flows that have no history row (pre-feature uploads)
+        cursor.execute("""
+            SELECT analysis_id, upload_filename as filename,
+                   MIN(timestamp) as uploaded_at, COUNT(*) as total_flows,
+                   SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) as anomaly_count,
+                   AVG(risk_score) as avg_risk_score
+            FROM flows
+            WHERE analysis_id IS NOT NULL AND analysis_id != ''
+              AND analysis_id NOT IN (SELECT analysis_id FROM analysis_history)
+            GROUP BY analysis_id
+        """)
+        fallback_rows = cursor.fetchall()
+        conn.close()
+
+    seen_ids = set()
+    result = []
+    for row in rows:
+        r = dict(row)
+        seen_ids.add(r["analysis_id"])
+        try:
+            r["attack_distribution"] = json.loads(r["attack_distribution"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            r["attack_distribution"] = {}
+        try:
+            r["risk_distribution"] = json.loads(r["risk_distribution"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            r["risk_distribution"] = {}
+        try:
+            r["report_details"] = json.loads(r["report_details"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            r["report_details"] = {}
+        result.append(r)
+
+    for row in fallback_rows:
+        r = dict(row)
+        if r["analysis_id"] in seen_ids:
+            continue
+        seen_ids.add(r["analysis_id"])
+        r["filename"] = r.get("filename") or "Unknown"
+        r["monitor_type"] = "Static Monitoring"
+        r["file_size"] = None
+        r["attack_distribution"] = {}
+        r["risk_distribution"] = {}
+        r["report_details"] = {}
+        result.append(r)
+
+    result.sort(key=lambda x: x.get("uploaded_at") or "", reverse=True)
+    return result[:limit]
+
+
+def get_analysis_report(analysis_id: str) -> Optional[Dict[str, Any]]:
+    """Get full report for one analysis (metadata + flows)."""
+    aid = analysis_id.strip()
+    with db_lock:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT analysis_id, filename, monitor_type, uploaded_at, file_size,
+                   total_flows, anomaly_count, avg_risk_score,
+                   attack_distribution, risk_distribution, report_details
+            FROM analysis_history
+            WHERE analysis_id = ?
+        """, (aid,))
+        row = cursor.fetchone()
+
+        if not row:
+            # Fallback: build from flows if we have flows but no history (pre-feature uploads)
+            cursor.execute(
+                "SELECT COUNT(*) as cnt, AVG(risk_score) as avg_risk FROM flows WHERE analysis_id = ?",
+                (aid,),
+            )
+            flow_row = cursor.fetchone()
+            if flow_row and flow_row["cnt"] and flow_row["cnt"] > 0:
+                cursor.execute(
+                    "SELECT upload_filename, MIN(timestamp) as ts FROM flows WHERE analysis_id = ?",
+                    (aid,),
+                )
+                fn_row = cursor.fetchone()
+                filename = (fn_row and fn_row["upload_filename"]) or "Unknown"
+                meta = {
+                    "analysis_id": aid,
+                    "filename": filename,
+                    "monitor_type": "Static Monitoring",
+                    "uploaded_at": (fn_row and fn_row["ts"]) or datetime.utcnow().isoformat() + "Z",
+                    "file_size": None,
+                    "total_flows": flow_row["cnt"],
+                    "anomaly_count": 0,
+                    "avg_risk_score": float(flow_row["avg_risk"] or 0),
+                    "attack_distribution": "{}",
+                    "risk_distribution": "{}",
+                    "report_details": "{}",
+                }
+                cursor.execute(
+                    "SELECT classification, COUNT(*) as c FROM flows WHERE analysis_id = ? GROUP BY classification",
+                    (aid,),
+                )
+                attack_dist = {r["classification"] or "Unknown": r["c"] for r in cursor.fetchall()}
+                cursor.execute(
+                    "SELECT risk_level, COUNT(*) as c FROM flows WHERE analysis_id = ? GROUP BY risk_level",
+                    (aid,),
+                )
+                risk_dist = {r["risk_level"] or "Low": r["c"] for r in cursor.fetchall()}
+                meta["attack_distribution"] = json.dumps(attack_dist)
+                meta["risk_distribution"] = json.dumps(risk_dist)
+                cursor.execute(
+                    "SELECT SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) as anom FROM flows WHERE analysis_id = ?",
+                    (aid,),
+                )
+                meta["anomaly_count"] = cursor.fetchone()["anom"] or 0
+            else:
+                conn.close()
+                return None
+        else:
+            meta = dict(row)
+        conn.close()
+    try:
+        meta["attack_distribution"] = json.loads(meta["attack_distribution"] or "{}")
+    except (TypeError, json.JSONDecodeError):
+        meta["attack_distribution"] = {}
+    try:
+        meta["risk_distribution"] = json.loads(meta["risk_distribution"] or "{}")
+    except (TypeError, json.JSONDecodeError):
+        meta["risk_distribution"] = {}
+    try:
+        meta["report_details"] = json.loads(meta["report_details"] or "{}")
+    except (TypeError, json.JSONDecodeError):
+        meta["report_details"] = {}
+
+    flows, total = get_flows(analysis_id=aid, page=1, per_page=500)
+    return {
+        "id": meta["analysis_id"],
+        "filename": meta["filename"],
+        "monitor_type": meta["monitor_type"],
+        "uploaded_at": meta["uploaded_at"],
+        "file_size": meta["file_size"],
+        "total_flows": meta["total_flows"],
+        "anomaly_count": meta["anomaly_count"],
+        "avg_risk_score": meta["avg_risk_score"],
+        "attack_distribution": meta["attack_distribution"],
+        "risk_distribution": meta["risk_distribution"],
+        "report_details": meta["report_details"],
+        "flows": flows,
+        "sample_flows": flows[:50],
+    }
 
 
 def insert_flows(flows: List[Dict[str, Any]]) -> int:

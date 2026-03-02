@@ -88,6 +88,12 @@ body {
   border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
+.badge-unknown {
+  background: rgba(100, 116, 139, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(100, 116, 139, 0.3);
+}
+
 /* Animated background grid */
 .bg-grid {
   background-image:

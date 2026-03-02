@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { uploadFile, getUploadFlows } from '../services/api';
+import { uploadFile, getUploadFlows, setUploadInProgress } from '../services/api';
 import {
     Upload as UploadIcon,
     FileUp,
@@ -87,6 +87,7 @@ export default function Upload() {
         if (!file) return;
         setUploading(true);
         setError(null);
+        setUploadInProgress(true);
 
         try {
             const { data } = await uploadFile(file);
@@ -103,6 +104,7 @@ export default function Upload() {
             setError(err.response?.data?.detail || 'Upload failed. Make sure the backend is running.');
         } finally {
             setUploading(false);
+            setUploadInProgress(false);
         }
     };
 

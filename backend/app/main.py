@@ -219,7 +219,7 @@ async def health_check():
             "supervised_model": "active" if decision_engine.rf_model else "inactive (no labels)",
             "anomaly_detector": "active" if decision_engine.if_model else "inactive",
             "decision_engine": "active",
-            "sbom_scanner": "active",
+            "sbom_scanner": "active (user upload only; no project dependencies)",
         },
     }
 
@@ -479,6 +479,8 @@ async def upload_file(file: UploadFile = File(..., alias="file")):
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
+    file_size = file_path.stat().st_size if file_path.exists() else None
+
     ext = _allowed_extension(filename)
     if ext is None:
         ext = _detect_pcap_magic(file_path)
@@ -509,6 +511,20 @@ async def upload_file(file: UploadFile = File(..., alias="file")):
              raise HTTPException(status_code=500, detail=result["error"])
 
         analysis_results[result['id']] = result
+
+        # Persist to analysis history (survives refresh)
+        db.insert_analysis(
+            analysis_id=result["id"],
+            filename=filename,
+            monitor_type="Static Monitoring",
+            file_size=file_size,
+            total_flows=result.get("total_flows", 0),
+            anomaly_count=result.get("anomaly_count", 0),
+            avg_risk_score=result.get("avg_risk_score", 0),
+            attack_distribution=result.get("attack_distribution", {}),
+            risk_distribution=result.get("risk_distribution", {}),
+            report_details=result.get("report_details", {}),
+        )
         
         return {
             "status": "success",
@@ -521,7 +537,7 @@ async def upload_file(file: UploadFile = File(..., alias="file")):
             "avg_risk_score": result.get('avg_risk_score', 0),
             "sample_flows": result.get('sample_flows', []),
             "report_details": result.get('report_details', {}),
-            "file_size": file.size if hasattr(file, "size") and file.size is not None else None,
+            "file_size": file_size,
         }
         
     except Exception as e:
@@ -534,118 +550,169 @@ async def upload_file(file: UploadFile = File(..., alias="file")):
                 pass
 
 
+# ── Analysis History ──────────────────────────────────────────────────────
+@app.get("/api/history")
+async def get_history(limit: int = 100):
+    """List all analyses ordered by upload time (newest first)."""
+    return {"analyses": db.get_analysis_history(limit=limit)}
+
+
+@app.get("/api/history/{analysis_id}")
+async def get_history_report(analysis_id: str):
+    """Get full report for one analysis (metadata + flows)."""
+    report = db.get_analysis_report(analysis_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    return report
+
+
 # ── SBOM Security ────────────────────────────────────────────────────────
-def _resolve_sbom_path() -> Path:
-    """Resolve SBOM file path from known locations."""
-    possible_paths = [
-        Path(__file__).parent.parent.parent.parent / "security" / "sbom.json",
-        Path("/home/ictd/Desktop/Network/nal/security/sbom.json"),
-        Path("../../security/sbom.json"),
-    ]
-    for p in possible_paths:
-        if p.exists():
-            return p
-    raise HTTPException(
-        status_code=404,
-        detail=f"SBOM file not found. Searched: {[str(p) for p in possible_paths]}"
+# In-memory store for last user SBOM analysis only. No static data and no project
+# dependencies are ever used—all SBOM/vulnerability data comes from user-uploaded files.
+_user_sbom_result: Optional[Dict[str, Any]] = None
+
+
+# Max size for SBOM dependency files (5 MB) - process then discard, no permanent storage
+SBOM_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
+
+
+@app.post("/api/security/sbom/analyze")
+async def analyze_sbom_file(file: UploadFile = File(..., alias="file")):
+    """Analyze user-uploaded dependency file (requirements.txt, package.json, etc.) and return SBOM + vulnerabilities."""
+    global _user_sbom_result
+    filename = _normalize_filename(file.filename)
+    if not filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    allowed = (
+        ".txt", ".json", "pipfile", "gemfile", "go.mod", "cargo.toml", "cargo.lock",
+        "package-lock.json", "yarn.lock", "poetry.lock", "gemfile.lock",
     )
+    fn_lower = filename.lower()
+    if not any(fn_lower.endswith(ext) or fn_lower == ext.lstrip(".") for ext in allowed):
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file. Allowed: requirements.txt, package.json, package-lock.json, yarn.lock, Pipfile, poetry.lock, Gemfile, Gemfile.lock, go.mod, Cargo.toml, Cargo.lock",
+        )
+
+    # Validate file size: read in chunks to avoid loading huge files
+    size = 0
+    chunk_size = 1024 * 1024
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > SBOM_MAX_FILE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File too large. Maximum size is {SBOM_MAX_FILE_SIZE_BYTES // (1024*1024)} MB.",
+            )
+    await file.seek(0)
+
+    temp_dir = Path(__file__).parent.parent.parent.parent / "temp_uploads"
+    temp_dir.mkdir(exist_ok=True)
+    file_path = temp_dir / f"{uuid.uuid4()}_{filename}"
+    try:
+        with open(file_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        from app.services.sbom_service import analyze_dependency_file
+        result = analyze_dependency_file(file_path, filename)
+        _user_sbom_result = result
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if file_path.exists():
+            try:
+                file_path.unlink()
+            except Exception:
+                pass
 
 
 @app.get("/api/security/sbom")
 async def get_sbom():
-    """Get SBOM data."""
-    sbom_path = _resolve_sbom_path()
-
-    with open(sbom_path, "r") as f:
-        sbom_data = json.load(f)
-
-    components = sbom_data.get("components", [])
-    metadata = sbom_data.get("metadata", {}) or {}
-    tools = metadata.get("tools", {}) or {}
-    tool_components = tools.get("components", []) if isinstance(tools, dict) else []
-    metadata_component = metadata.get("component", {}) or {}
-
-    return {
-        "schema": sbom_data.get("$schema"),
-        "format": sbom_data.get("bomFormat", "CycloneDX"),
-        "spec_version": sbom_data.get("specVersion", "unknown"),
-        "serial_number": sbom_data.get("serialNumber"),
-        "document_version": sbom_data.get("version"),
-        "total_components": len(components),
-        "metadata": {
-            "timestamp": metadata.get("timestamp"),
-            "component": {
-                "bom_ref": metadata_component.get("bom-ref"),
-                "type": metadata_component.get("type"),
-                "name": metadata_component.get("name"),
-                "version": metadata_component.get("version"),
+    """Get SBOM data. Returns user's last analysis only. No project fallback—users must upload their dependency file."""
+    global _user_sbom_result
+    if _user_sbom_result:
+        return {
+            "schema": None,
+            "format": "CycloneDX",
+            "spec_version": "1.6",
+            "serial_number": None,
+            "document_version": 1,
+            "total_components": _user_sbom_result.get("total_components", 0),
+            "metadata": {
+                "timestamp": _user_sbom_result.get("scan_timestamp"),
+                "component": {"name": _user_sbom_result.get("filename"), "type": "file"},
+                "tools": [{"name": _user_sbom_result.get("scanner", "CycloneDX"), "type": "scanner"}],
             },
-            "tools": [
+            "components": [
                 {
-                    "type": t.get("type"),
-                    "author": t.get("author"),
-                    "name": t.get("name"),
-                    "version": t.get("version"),
+                    "bom_ref": c.get("bom_ref"),
+                    "name": c.get("name"),
+                    "version": c.get("version"),
+                    "type": c.get("type", "library"),
+                    "purl": c.get("purl", ""),
+                    "cpe": c.get("cpe", ""),
+                    "properties": [],
                 }
-                for t in tool_components
-            ]
-        },
-        "components": [
-            {
-                "bom_ref": c.get("bom-ref"),
-                "name": c.get("name", "unknown"),
-                "version": c.get("version", "unknown"),
-                "type": c.get("type", "library"),
-                "purl": c.get("purl", ""),
-                "cpe": c.get("cpe", ""),
-                "properties": c.get("properties", []),
-            }
-            for c in components
-        ],
+                for c in _user_sbom_result.get("components", [])
+            ],
+        }
+    return {
+        "schema": None,
+        "format": "CycloneDX",
+        "total_components": 0,
+        "metadata": {},
+        "components": [],
     }
 
 
 @app.get("/api/security/vulnerabilities")
 async def get_vulnerabilities():
-    """Simulated vulnerability scan results."""
-    vulns = [
-        {"id": "CVE-2024-3651", "package": "idna", "version": "3.6", "severity": "High",
-         "description": "Denial of service via resource consumption", "fixed_in": "3.7"},
-        {"id": "CVE-2024-35195", "package": "requests", "version": "2.31.0", "severity": "Medium",
-         "description": "Session cookie handling vulnerability", "fixed_in": "2.32.0"},
-        {"id": "CVE-2023-45803", "package": "urllib3", "version": "2.0.7", "severity": "Medium",
-         "description": "Request body not stripped after redirect", "fixed_in": "2.1.0"},
-        {"id": "CVE-2024-0727", "package": "cryptography", "version": "41.0.7", "severity": "Low",
-         "description": "NULL dereference processing PKCS12", "fixed_in": "42.0.0"},
-        {"id": "CVE-2023-50447", "package": "Pillow", "version": "10.1.0", "severity": "Critical",
-         "description": "Arbitrary code execution via crafted image", "fixed_in": "10.2.0"},
-        {"id": "CVE-2024-22195", "package": "Jinja2", "version": "3.1.2", "severity": "Medium",
-         "description": "Cross-site scripting in xmlattr filter", "fixed_in": "3.1.3"},
-    ]
-
-    severity_count = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
-    for v in vulns:
-        severity_count[v["severity"]] += 1
-
+    """Get vulnerability scan results. Returns user's last SBOM analysis vulns only. No project fallback."""
+    global _user_sbom_result
+    if _user_sbom_result:
+        return {
+            "total_vulnerabilities": _user_sbom_result.get("total_vulnerabilities", 0),
+            "severity_distribution": _user_sbom_result.get("severity_distribution", {}),
+            "vulnerabilities": _user_sbom_result.get("vulnerabilities", []),
+            "scan_timestamp": _user_sbom_result.get("scan_timestamp"),
+            "scanner": _user_sbom_result.get("scanner", "CycloneDX"),
+            "vuln_source": _user_sbom_result.get("vuln_source", "OSV"),
+        }
     return {
-        "total_vulnerabilities": len(vulns),
-        "severity_distribution": severity_count,
-        "vulnerabilities": vulns,
-        "scan_timestamp": datetime.now().isoformat(),
-        "scanner": "Grype",
+        "total_vulnerabilities": 0,
+        "severity_distribution": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0},
+        "vulnerabilities": [],
+        "scan_timestamp": None,
+        "scanner": None,
     }
 
 
 @app.get("/api/security/sbom/download")
 async def download_sbom():
-    """Download SBOM file as JSON."""
-    sbom_path = _resolve_sbom_path()
-    
-    return FileResponse(
-        path=str(sbom_path),
-        filename="sbom.json",
-        media_type="application/json",
-    )
+    """Download SBOM as CycloneDX JSON. Returns user's analyzed BOM if available, else 404."""
+    global _user_sbom_result
+    if _user_sbom_result:
+        from fastapi.responses import JSONResponse
+        cyclonedx_json = _user_sbom_result.get("cyclonedx_bom_json")
+        if cyclonedx_json:
+            bom = json.loads(cyclonedx_json)
+        else:
+            bom = {
+                "bomFormat": "CycloneDX",
+                "specVersion": "1.6",
+                "components": _user_sbom_result.get("components", []),
+                "metadata": {
+                    "timestamp": _user_sbom_result.get("scan_timestamp"),
+                    "component": {"name": _user_sbom_result.get("filename")},
+                    "tools": [{"name": _user_sbom_result.get("scanner", "CycloneDX")}],
+                },
+            }
+        return JSONResponse(content=bom, media_type="application/json")
+    raise HTTPException(status_code=404, detail="No SBOM available. Upload and analyze a dependency file first.")
 
 
 # ── Root ─────────────────────────────────────────────────────────────────
