@@ -58,8 +58,12 @@ export const uploadFile = (file) => {
 };
 export const getUploadFlows = (analysisId, params = {}) => api.get(`/upload/${analysisId}/flows`, { params });
 
-// History
-export const getHistory = (limit = 100) => api.get('/history', { params: { limit } });
+// History (monitorType: '' | 'passive' | 'active')
+export const getHistory = (limit = 100, monitorType = '') => {
+    const params = { limit };
+    if (monitorType) params.monitor_type = monitorType;
+    return api.get('/history', { params });
+};
 export const getHistoryReport = (analysisId) => api.get(`/history/${analysisId}`);
 
 // Security / SBOM

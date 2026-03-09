@@ -60,6 +60,7 @@ export default function TrafficAnalysis() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [trendData, setTrendData] = useState([]);
+    const [monitorView, setMonitorView] = useState(''); // '' = combined, 'passive', 'active'
     const [filters, setFilters] = useState({
         classification: '',
         risk_level: '',
@@ -78,6 +79,7 @@ export default function TrafficAnalysis() {
             if (filters.risk_level?.trim()) params.risk_level = filters.risk_level.trim();
             if (filters.src_ip?.trim()) params.src_ip = filters.src_ip.trim();
             if (filters.protocol?.trim()) params.protocol = filters.protocol.trim();
+            if (monitorView) params.monitor_type = monitorView;
 
             const [flowsRes, trendsRes] = await Promise.all([
                 getTrafficFlows(params),
@@ -95,7 +97,7 @@ export default function TrafficAnalysis() {
                 setLoading(false);
             }
         }
-    }, [page, filters]);
+    }, [page, filters, monitorView]);
 
     useEffect(() => {
         fetchFlows();
@@ -141,28 +143,64 @@ export default function TrafficAnalysis() {
     });
 
     return (
-        <div className="space-y-5">
-            {/* Header */}
-            <div className="flex items-center justify-between">
+        <div className="space-y-8">
+            {/* Header + Monitor Toggle */}
+            <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div>
-                    <h1 className="text-xl font-bold text-white flex items-center gap-2">
-                        <Network size={20} className="text-cyan-400" />
+                    <h1 className="text-h1 font-bold text-text-primary flex items-center gap-2">
+                        <Network size={20} className="text-primary" />
                         Traffic Analysis
                     </h1>
-                    <p className="text-xs text-slate-400 mt-1">
-                        {total.toLocaleString()} flows detected
+                    <p className="text-body text-text-muted mt-1">
+                        {total.toLocaleString()} flows
+                        {monitorView === 'active' && ' (active monitoring)'}
+                        {monitorView === 'passive' && ' (passive / uploads)'}
+                        {!monitorView && ' (combined)'}
                     </p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-small font-medium text-text-muted uppercase tracking-wider">View</span>
+                    <div className="flex rounded-xl bg-surface border border-white/10 p-0.5">
+                        <button
+                            type="button"
+                            onClick={() => { setMonitorView(''); setPage(1); }}
+                            className={`px-4 py-2 rounded-lg text-body font-medium transition-colors ${!monitorView
+                                ? 'bg-primary/15 text-primary border border-primary/30'
+                                : 'text-text-muted hover:text-text-primary'}`}
+                        >
+                            Combined
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setMonitorView('active'); setPage(1); }}
+                            className={`px-4 py-2 rounded-lg text-body font-medium transition-colors ${monitorView === 'active'
+                                ? 'bg-primary/15 text-primary border border-primary/30'
+                                : 'text-text-muted hover:text-text-primary'}`}
+                        >
+                            Active
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setMonitorView('passive'); setPage(1); }}
+                            className={`px-4 py-2 rounded-lg text-body font-medium transition-colors ${monitorView === 'passive'
+                                ? 'bg-primary/15 text-primary border border-primary/30'
+                                : 'text-text-muted hover:text-text-primary'}`}
+                        >
+                            Passive
+                        </button>
+                    </div>
                 </div>
             </div>
 
             {/* Filters */}
-            <div className="glass-card p-4">
+            <h2 className="section-header">Filters</h2>
+            <div className="glass-card p-6">
                 <div className="flex items-center justify-between gap-2 mb-3">
                     <div className="flex items-center gap-2">
-                        <Filter size={14} className="text-cyan-400" />
-                        <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Filters</span>
+                        <Filter size={14} className="text-primary" />
+                        <span className="text-small font-semibold text-text-primary uppercase tracking-wider">Filters</span>
                         {hasActiveFilters && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300">
+                            <span className="text-small px-2 py-0.5 rounded-full bg-primary/15 text-primary">
                                 Active
                             </span>
                         )}
@@ -170,7 +208,7 @@ export default function TrafficAnalysis() {
                     {hasActiveFilters && (
                         <button
                             onClick={clearFilters}
-                            className="text-xs text-slate-400 hover:text-cyan-400 transition-colors"
+                            className="text-small text-text-muted hover:text-primary transition-colors"
                         >
                             Clear all
                         </button>
@@ -178,19 +216,19 @@ export default function TrafficAnalysis() {
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
                     <div className="relative">
-                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
                         <input
                             type="text"
                             placeholder="Source IP"
                             value={filters.src_ip}
                             onChange={(e) => handleFilterChange('src_ip', e.target.value)}
-                            className="w-full pl-9 pr-3 py-2 rounded-xl bg-dark-800 border border-white/5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/30 transition-colors"
+                            className="w-full pl-9 pr-3 py-2 rounded-xl bg-background border border-white/10 text-body text-text-primary placeholder-text-muted focus:outline-none focus:border-primary/50 transition-colors"
                         />
                     </div>
                     <select
                         value={filters.classification}
                         onChange={(e) => handleFilterChange('classification', e.target.value)}
-                        className="px-3 py-2 rounded-xl bg-dark-800 border border-white/5 text-sm text-white focus:outline-none focus:border-cyan-500/30 appearance-none cursor-pointer"
+                        className="px-3 py-2 rounded-xl bg-background border border-white/10 text-body text-text-primary focus:outline-none focus:border-primary/50 appearance-none cursor-pointer"
                     >
                         {CLASSIFICATION_OPTIONS.map((c) => (
                             <option key={c.value || 'all'} value={c.value}>{c.label}</option>
@@ -199,7 +237,7 @@ export default function TrafficAnalysis() {
                     <select
                         value={filters.risk_level}
                         onChange={(e) => handleFilterChange('risk_level', e.target.value)}
-                        className="px-3 py-2 rounded-xl bg-dark-800 border border-white/5 text-sm text-white focus:outline-none focus:border-cyan-500/30 appearance-none cursor-pointer"
+                        className="px-3 py-2 rounded-xl bg-background border border-white/10 text-body text-text-primary focus:outline-none focus:border-primary/50 appearance-none cursor-pointer"
                     >
                         <option value="">All Risk Levels</option>
                         {['Critical', 'High', 'Medium', 'Low'].map((r) => (
@@ -209,7 +247,7 @@ export default function TrafficAnalysis() {
                     <select
                         value={filters.protocol}
                         onChange={(e) => handleFilterChange('protocol', e.target.value)}
-                        className="px-3 py-2 rounded-xl bg-dark-800 border border-white/5 text-sm text-white focus:outline-none focus:border-cyan-500/30 appearance-none cursor-pointer"
+                        className="px-3 py-2 rounded-xl bg-background border border-white/10 text-body text-text-primary focus:outline-none focus:border-primary/50 appearance-none cursor-pointer"
                     >
                         {PROTOCOL_FILTER_OPTIONS.map((p) => (
                             <option key={p.value || 'all'} value={p.value}>{p.label}</option>
@@ -217,7 +255,7 @@ export default function TrafficAnalysis() {
                     </select>
                     <button
                         onClick={clearFilters}
-                        className="px-4 py-2 rounded-xl border border-white/10 text-xs text-slate-400 hover:text-white hover:border-cyan-500/30 transition-colors"
+                        className="px-4 py-2 rounded-[10px] border border-white/10 text-body text-text-muted hover:text-text-primary hover:border-primary/50 transition-colors"
                     >
                         Clear
                     </button>
@@ -225,9 +263,17 @@ export default function TrafficAnalysis() {
             </div>
 
             {/* Flow Trend Charts */}
+            <h2 className="section-header">
+                Flow Trends
+                <span className="ml-2 text-small font-normal text-text-muted">
+                    {!monitorView && '(combined)'}
+                    {monitorView === 'active' && '(active monitoring)'}
+                    {monitorView === 'passive' && '(passive / uploads)'}
+                </span>
+            </h2>
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                <div className="glass-card p-4">
-                    <h3 className="text-sm font-semibold text-slate-300 mb-3">Flow Volume & Threat Mix (Averaged by Hour)</h3>
+                <div className="glass-card p-6">
+                    <h3 className="text-h2 font-semibold text-text-primary mb-3">Flow Volume & Threat Mix (Averaged by Hour)</h3>
                     <div className="h-72">
                         <Line
                             data={{
@@ -236,8 +282,8 @@ export default function TrafficAnalysis() {
                                     {
                                         label: 'Total Flows',
                                         data: trendData.map((p) => p.total_flows || 0),
-                                        borderColor: '#00d4ff',
-                                        backgroundColor: 'rgba(0, 212, 255, 0.08)',
+                                        borderColor: '#00ADB5',
+                                        backgroundColor: 'rgba(0, 173, 181, 0.12)',
                                         pointRadius: trendData.length <= 1 ? 3 : 1,
                                         borderWidth: 2,
                                         tension: 0.25,
@@ -245,8 +291,8 @@ export default function TrafficAnalysis() {
                                     {
                                         label: 'Threat Flows',
                                         data: trendData.map((p) => p.threat_flows || 0),
-                                        borderColor: '#ef4444',
-                                        backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                                        borderColor: '#EF4444',
+                                        backgroundColor: 'rgba(239, 68, 68, 0.12)',
                                         pointRadius: trendData.length <= 1 ? 3 : 1,
                                         borderWidth: 2,
                                         tension: 0.25,
@@ -254,8 +300,8 @@ export default function TrafficAnalysis() {
                                     {
                                         label: 'Benign Flows',
                                         data: trendData.map((p) => p.benign_flows || 0),
-                                        borderColor: '#10b981',
-                                        backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                                        borderColor: '#22C55E',
+                                        backgroundColor: 'rgba(34, 197, 94, 0.12)',
                                         pointRadius: trendData.length <= 1 ? 3 : 1,
                                         borderWidth: 2,
                                         tension: 0.25,
@@ -267,19 +313,19 @@ export default function TrafficAnalysis() {
                                 maintainAspectRatio: false,
                                 interaction: { mode: 'index', intersect: false },
                                 scales: {
-                                    x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#94a3b8', maxTicksLimit: 8 } },
-                                    y: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#64748b' } },
+                                    x: { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#B0B5BA', maxTicksLimit: 8, font: { size: 13 } } },
+                                    y: { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#B0B5BA', font: { size: 13 } } },
                                 },
                                 plugins: {
-                                    legend: { labels: { color: '#94a3b8', usePointStyle: true, pointStyleWidth: 8 } },
+                                    legend: { labels: { color: '#B0B5BA', font: { size: 13 }, usePointStyle: true, pointStyleWidth: 8 } },
                                 },
                             }}
                         />
                     </div>
                 </div>
 
-                <div className="glass-card p-4">
-                    <h3 className="text-sm font-semibold text-slate-300 mb-3">Average Risk, Confidence & Threat Rate</h3>
+                <div className="glass-card p-6">
+                    <h3 className="text-h2 font-semibold text-text-primary mb-3">Average Risk, Confidence & Threat Rate</h3>
                     <div className="h-72">
                         <Line
                             data={{
@@ -288,8 +334,8 @@ export default function TrafficAnalysis() {
                                     {
                                         label: 'Avg Risk %',
                                         data: trendData.map((p) => Math.round((p.avg_risk_score || 0) * 100)),
-                                        borderColor: '#f59e0b',
-                                        backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                                        borderColor: '#F59E0B',
+                                        backgroundColor: 'rgba(245, 158, 11, 0.12)',
                                         pointRadius: trendData.length <= 1 ? 3 : 1,
                                         borderWidth: 2,
                                         tension: 0.25,
@@ -297,8 +343,8 @@ export default function TrafficAnalysis() {
                                     {
                                         label: 'Avg Confidence %',
                                         data: trendData.map((p) => Math.round((p.avg_confidence || 0) * 100)),
-                                        borderColor: '#8b5cf6',
-                                        backgroundColor: 'rgba(139, 92, 246, 0.08)',
+                                        borderColor: '#A855F7',
+                                        backgroundColor: 'rgba(168, 85, 247, 0.12)',
                                         pointRadius: trendData.length <= 1 ? 3 : 1,
                                         borderWidth: 2,
                                         tension: 0.25,
@@ -306,8 +352,8 @@ export default function TrafficAnalysis() {
                                     {
                                         label: 'Threat Rate %',
                                         data: trendData.map((p) => p.threat_rate || 0),
-                                        borderColor: '#ef4444',
-                                        backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                                        borderColor: '#EF4444',
+                                        backgroundColor: 'rgba(239, 68, 68, 0.12)',
                                         pointRadius: trendData.length <= 1 ? 3 : 1,
                                         borderWidth: 2,
                                         tension: 0.25,
@@ -319,16 +365,16 @@ export default function TrafficAnalysis() {
                                 maintainAspectRatio: false,
                                 interaction: { mode: 'index', intersect: false },
                                 scales: {
-                                    x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#94a3b8', maxTicksLimit: 8 } },
+                                    x: { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#B0B5BA', maxTicksLimit: 8, font: { size: 13 } } },
                                     y: {
                                         min: 0,
                                         max: 100,
-                                        grid: { color: 'rgba(255,255,255,0.03)' },
-                                        ticks: { color: '#64748b', callback: (v) => `${v}%` },
+                                        grid: { color: 'rgba(255,255,255,0.06)' },
+                                        ticks: { color: '#B0B5BA', font: { size: 13 }, callback: (v) => `${v}%` },
                                     },
                                 },
                                 plugins: {
-                                    legend: { labels: { color: '#94a3b8', usePointStyle: true, pointStyleWidth: 8 } },
+                                    legend: { labels: { color: '#B0B5BA', font: { size: 13 }, usePointStyle: true, pointStyleWidth: 8 } },
                                 },
                             }}
                         />
@@ -338,11 +384,11 @@ export default function TrafficAnalysis() {
 
             {/* Error */}
             {error && (
-                <div className="glass-card p-4 border-red-500/20 flex items-center justify-between">
-                    <p className="text-sm text-red-300">{error}</p>
+                <div className="glass-card p-4 border-danger/30 bg-danger/10 flex items-center justify-between">
+                    <p className="text-body text-red-300">{error}</p>
                     <button
                         onClick={() => { setError(null); fetchFlows(); }}
-                        className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 text-xs font-medium hover:bg-red-500/20 transition-colors"
+                        className="px-4 py-2 rounded-[10px] border border-danger text-danger text-small font-medium hover:bg-danger/10 transition-colors"
                     >
                         Retry
                     </button>
@@ -350,22 +396,24 @@ export default function TrafficAnalysis() {
             )}
 
             {/* Table */}
+            <h2 className="section-header">Flow Records</h2>
             <div className="glass-card overflow-hidden">
                 {loading ? (
                     <div className="flex items-center justify-center h-64">
-                        <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+                        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                     </div>
                 ) : flows.length === 0 && !error ? (
-                    <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+                    <div className="flex flex-col items-center justify-center h-64 text-text-muted">
                         <Network size={40} className="mb-3 opacity-50" />
-                        <p className="text-sm">No flows to show</p>
-                        <p className="text-xs mt-1">Start the backend and load data, or upload a capture.</p>
+                        <p className="text-body">No flows to show</p>
+                        <p className="text-small mt-1">Start the backend and load data, or upload a capture.</p>
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full data-table">
                             <thead>
                                 <tr>
+                                    <th className="text-left">Source</th>
                                     <th className="text-left">Time</th>
                                     <th className="text-left">Source IP</th>
                                     <th className="text-left">Dest IP</th>
@@ -381,33 +429,38 @@ export default function TrafficAnalysis() {
                             <tbody>
                                 {flows.map((flow) => (
                                     <tr key={flow.id}>
-                                        <td className="text-xs text-slate-400 whitespace-nowrap">
+                                        <td>
+                                            <span className={`px-2 py-0.5 rounded-md text-small font-medium ${(flow.monitor_type || 'passive') === 'active' ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-surface text-text-muted border border-white/10'}`}>
+                                                {(flow.monitor_type || 'passive') === 'active' ? 'Active' : 'Passive'}
+                                            </span>
+                                        </td>
+                                        <td className="text-small text-text-muted whitespace-nowrap">
                                             {flow.timestamp ? new Date(flow.timestamp).toLocaleTimeString() : '—'}
                                         </td>
-                                        <td className="font-mono text-xs text-cyan-300">{flow.src_ip ?? '—'}</td>
-                                        <td className="font-mono text-xs text-slate-300">{flow.dst_ip ?? '—'}</td>
-                                        <td className="font-mono text-xs text-slate-400">{flow.dst_port ?? '—'}</td>
+                                        <td className="cell-ip">{flow.src_ip ?? '—'}</td>
+                                        <td className="cell-ip">{flow.dst_ip ?? '—'}</td>
+                                        <td className="font-mono text-small text-text-muted">{flow.dst_port ?? '—'}</td>
                                         <td>
-                                            <span className="px-2 py-0.5 rounded-md bg-dark-700 text-xs font-mono text-cyan-400 border border-white/5">
+                                            <span className="px-2 py-0.5 rounded-md bg-surface text-small font-mono text-primary border border-white/10">
                                                 {formatProtocol(flow.protocol)}
                                             </span>
                                         </td>
-                                        <td className="text-xs text-slate-400">{flow.duration != null ? `${Number(flow.duration).toFixed(1)}s` : '—'}</td>
-                                        <td className="text-xs text-slate-400 font-mono">
+                                        <td className="text-small text-text-muted">{flow.duration != null ? `${Number(flow.duration).toFixed(1)}s` : '—'}</td>
+                                        <td className="text-small text-text-muted font-mono">
                                             {flow.flow_bytes_per_sec != null ? (Number(flow.flow_bytes_per_sec) / 1000).toFixed(1) + 'K' : '—'}
                                         </td>
                                         <td title={flow.classification_reason || ''}>
-                                            <span className={`text-xs font-semibold ${String(flow.classification || '').toLowerCase() === 'benign' ? 'text-green-400' : 'text-red-400'}`}>
+                                            <span className={`text-small font-semibold ${String(flow.classification || '').toLowerCase() === 'benign' ? 'text-success' : 'text-danger'}`}>
                                                 {flow.classification || '—'}
                                             </span>
                                         </td>
                                         <td>
-                                            <span className={`text-xs font-mono ${(Number(flow.anomaly_score) || 0) > 0.7 ? 'text-red-400' : (Number(flow.anomaly_score) || 0) > 0.4 ? 'text-yellow-400' : 'text-green-400'}`}>
+                                            <span className={`text-small font-mono ${(Number(flow.anomaly_score) || 0) > 0.7 ? 'text-danger' : (Number(flow.anomaly_score) || 0) > 0.4 ? 'text-warning' : 'text-success'}`}>
                                                 {(Number(flow.anomaly_score) || 0).toFixed(2)}
                                             </span>
                                         </td>
                                         <td>
-                                            <span className={`px-2 py-0.5 rounded-md text-xs font-medium badge-${(flow.risk_level || 'low').toLowerCase()}`}>
+                                            <span className={`px-2 py-0.5 rounded-md text-small font-medium badge-${(flow.risk_level || 'low').toLowerCase()}`}>
                                                 {flow.risk_level ?? '—'}
                                             </span>
                                         </td>
@@ -420,25 +473,25 @@ export default function TrafficAnalysis() {
 
                 {/* Pagination */}
                 {flows.length > 0 && (
-                <div className="flex items-center justify-between px-4 py-3 border-t border-white/5">
-                    <p className="text-xs text-slate-400">
+                <div className="flex items-center justify-between px-6 py-3 border-t border-white/10">
+                    <p className="text-small text-text-muted">
                         Showing {((page - 1) * 15) + 1}–{Math.min(page * 15, total)} of {total}
                     </p>
                     <div className="flex items-center gap-2">
                         <button
                             onClick={() => setPage(Math.max(1, page - 1))}
                             disabled={page === 1}
-                            className="p-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:border-cyan-500/30 disabled:opacity-30 transition-colors"
+                            className="p-2 rounded-[10px] border border-white/10 text-text-muted hover:text-text-primary hover:border-primary/50 disabled:opacity-30 transition-colors"
                         >
                             <ChevronLeft size={14} />
                         </button>
-                        <span className="text-xs text-slate-300 font-medium px-2">
+                        <span className="text-small text-text-primary font-medium px-2">
                             {page} / {totalPages}
                         </span>
                         <button
                             onClick={() => setPage(Math.min(totalPages, page + 1))}
                             disabled={page === totalPages}
-                            className="p-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:border-cyan-500/30 disabled:opacity-30 transition-colors"
+                            className="p-2 rounded-[10px] border border-white/10 text-text-muted hover:text-text-primary hover:border-primary/50 disabled:opacity-30 transition-colors"
                         >
                             <ChevronRight size={14} />
                         </button>

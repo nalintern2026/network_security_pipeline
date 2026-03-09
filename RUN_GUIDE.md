@@ -48,6 +48,8 @@ docker compose down
 4. `source .venv/bin/activate` (Linux/Mac) or `.venv\Scripts\activate` (Windows)
 5. `pip install -r requirements.txt`
 6. `uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload`
+or from root 
+`cd nal/backend && sudo .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000`
 
 ### Frontend
 1. Node.js 20+ required.

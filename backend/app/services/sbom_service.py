@@ -527,9 +527,14 @@ def _build_cyclonedx_bom(deps: List[Dict[str, str]], filename: str) -> Tuple[Bom
             "name": name,
             "version": version,
             "type": "library",
+            "ecosystem": eco or "",
             "purl": purl_str,
             "cpe": "",
         })
+    # Register root component with dependencies so the dependency graph is complete (avoids CycloneDX UserWarning)
+    root = bom.metadata.component
+    if root and bom.components:
+        bom.register_dependency(target=root, depends_on=list(bom.components))
     return bom, components_list
 
 
@@ -548,6 +553,9 @@ def analyze_dependency_file(file_path: Path, filename: str) -> Dict[str, Any]:
             "vulnerabilities": [],
             "total_components": 0,
             "total_vulnerabilities": 0,
+            "dependencies_scanned": 0,
+            "vulnerable_packages_count": 0,
+            "component_scan_status": [],
             "severity_distribution": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Unknown": 0},
             "scan_timestamp": datetime.utcnow().isoformat() + "Z",
             "scanner": "CycloneDX",
@@ -570,6 +578,7 @@ def analyze_dependency_file(file_path: Path, filename: str) -> Dict[str, Any]:
                 "name": name,
                 "version": version,
                 "type": "library",
+                "ecosystem": eco or "",
                 "purl": purl,
                 "cpe": "",
             })
@@ -577,6 +586,8 @@ def analyze_dependency_file(file_path: Path, filename: str) -> Dict[str, Any]:
     all_vulns = []
     severity_count = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Unknown": 0}
     packages_skipped_unknown_version = []
+    # Severity order for "max" (highest first)
+    SEVERITY_ORDER = ("Critical", "High", "Medium", "Low", "Unknown")
 
     for dep in deps:
         name, version, eco = dep["name"], dep["version"], dep["ecosystem"]
@@ -604,6 +615,42 @@ def analyze_dependency_file(file_path: Path, filename: str) -> Dict[str, Any]:
             all_vulns.append(vuln_obj)
             severity_count[severity] = severity_count.get(severity, 0) + 1
 
+    # Unique packages (name, version) that have at least one vulnerability
+    vulnerable_package_keys = set((v["package"], v["version"]) for v in all_vulns)
+    vulnerable_packages_count = len(vulnerable_package_keys)
+
+    # Vulns per package for scan status (package_key -> list of vulns)
+    vulns_by_package: Dict[tuple, List[Dict]] = {}
+    for v in all_vulns:
+        key = (v["package"], v["version"])
+        vulns_by_package.setdefault(key, []).append(v)
+
+    def max_severity(vuln_list: List[Dict]) -> str:
+        for sev in SEVERITY_ORDER:
+            if any(v.get("severity") == sev for v in vuln_list):
+                return sev
+        return "Unknown"
+
+    # Per-package scan status: scanned, vulnerable, max_severity, vuln_count
+    component_scan_status: List[Dict[str, Any]] = []
+    for dep in deps:
+        name, version, eco = dep["name"], dep["version"], dep["ecosystem"]
+        scanned = (version or "").lower() != "unknown" and bool((version or "").strip())
+        key = (name, version)
+        pkg_vulns = vulns_by_package.get(key, [])
+        vulnerable = len(pkg_vulns) > 0
+        component_scan_status.append({
+            "name": name,
+            "version": version,
+            "ecosystem": eco or "",
+            "scanned": scanned,
+            "vulnerable": vulnerable,
+            "vuln_count": len(pkg_vulns),
+            "max_severity": max_severity(pkg_vulns) if pkg_vulns else None,
+        })
+
+    dependencies_scanned = len(deps) - len(packages_skipped_unknown_version)
+
     result = {
         "filename": filename,
         "ecosystem": ecosystem,
@@ -611,6 +658,9 @@ def analyze_dependency_file(file_path: Path, filename: str) -> Dict[str, Any]:
         "vulnerabilities": all_vulns,
         "total_components": len(components),
         "total_vulnerabilities": len(all_vulns),
+        "dependencies_scanned": dependencies_scanned,
+        "vulnerable_packages_count": vulnerable_packages_count,
+        "component_scan_status": component_scan_status,
         "severity_distribution": severity_count,
         "scan_timestamp": datetime.utcnow().isoformat() + "Z",
         "scanner": "CycloneDX",

@@ -162,34 +162,59 @@ def insert_analysis(
         conn.close()
 
 
-def get_analysis_history(limit: int = 100) -> List[Dict[str, Any]]:
-    """Get all analyses ordered by upload time (newest first). Includes fallback from flows for pre-feature uploads."""
+def get_analysis_history(limit: int = 100, monitor_type: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Get all analyses ordered by upload time (newest first). Includes fallback from flows for pre-feature uploads.
+    monitor_type: 'passive', 'active', or None for combined. Passive = Static Monitoring/upload; Active = live capture sessions."""
     with db_lock:
         conn = sqlite3.connect(str(DB_PATH))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT analysis_id, filename, monitor_type, uploaded_at, file_size,
-                   total_flows, anomaly_count, avg_risk_score,
-                   attack_distribution, risk_distribution, report_details
-            FROM analysis_history
-            ORDER BY uploaded_at DESC
-            LIMIT ?
-        """, (limit,))
+        if monitor_type and str(monitor_type).strip().lower() == "passive":
+            cursor.execute("""
+                SELECT analysis_id, filename, monitor_type, uploaded_at, file_size,
+                       total_flows, anomaly_count, avg_risk_score,
+                       attack_distribution, risk_distribution, report_details
+                FROM analysis_history
+                WHERE COALESCE(monitor_type, 'passive') IN ('passive', 'Static Monitoring', '')
+                ORDER BY uploaded_at DESC
+                LIMIT ?
+            """, (limit,))
+        elif monitor_type and str(monitor_type).strip().lower() == "active":
+            cursor.execute("""
+                SELECT analysis_id, filename, monitor_type, uploaded_at, file_size,
+                       total_flows, anomaly_count, avg_risk_score,
+                       attack_distribution, risk_distribution, report_details
+                FROM analysis_history
+                WHERE LOWER(COALESCE(monitor_type, '')) = 'active'
+                ORDER BY uploaded_at DESC
+                LIMIT ?
+            """, (limit,))
+        else:
+            cursor.execute("""
+                SELECT analysis_id, filename, monitor_type, uploaded_at, file_size,
+                       total_flows, anomaly_count, avg_risk_score,
+                       attack_distribution, risk_distribution, report_details
+                FROM analysis_history
+                ORDER BY uploaded_at DESC
+                LIMIT ?
+            """, (limit,))
         rows = list(cursor.fetchall())
 
-        # Fallback: analyses from flows that have no history row (pre-feature uploads)
-        cursor.execute("""
-            SELECT analysis_id, upload_filename as filename,
-                   MIN(timestamp) as uploaded_at, COUNT(*) as total_flows,
-                   SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) as anomaly_count,
-                   AVG(risk_score) as avg_risk_score
-            FROM flows
-            WHERE analysis_id IS NOT NULL AND analysis_id != ''
-              AND analysis_id NOT IN (SELECT analysis_id FROM analysis_history)
-            GROUP BY analysis_id
-        """)
-        fallback_rows = cursor.fetchall()
+        # Fallback: analyses from flows that have no history row (pre-feature uploads). Only for combined/passive.
+        fallback_rows = []
+        if not monitor_type or str(monitor_type).strip().lower() == "passive":
+            cursor.execute("""
+                SELECT analysis_id, upload_filename as filename,
+                       MIN(timestamp) as uploaded_at, COUNT(*) as total_flows,
+                       SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) as anomaly_count,
+                       AVG(risk_score) as avg_risk_score
+                FROM flows
+                WHERE analysis_id IS NOT NULL AND analysis_id != ''
+                  AND analysis_id NOT IN (SELECT analysis_id FROM analysis_history)
+                  AND COALESCE(monitor_type, 'passive') = 'passive'
+                GROUP BY analysis_id
+            """)
+            fallback_rows = cursor.fetchall()
         conn.close()
 
     seen_ids = set()
@@ -394,8 +419,10 @@ def get_flows(
     src_ip: Optional[str] = None,
     protocol: Optional[str] = None,
     analysis_id: Optional[str] = None,
+    monitor_type: Optional[str] = None,
 ) -> Tuple[List[Dict[str, Any]], int]:
-    """Get paginated flows with optional filters. Returns (flows, total_count)."""
+    """Get paginated flows with optional filters. Returns (flows, total_count).
+    monitor_type: 'passive', 'active', or None for combined."""
     
     with db_lock:
         conn = sqlite3.connect(str(DB_PATH))
@@ -405,6 +432,10 @@ def get_flows(
         # Build WHERE clause
         where_clauses = []
         params = []
+        
+        if monitor_type and str(monitor_type).strip().lower() in ("passive", "active"):
+            where_clauses.append("COALESCE(monitor_type, 'passive') = ?")
+            params.append(str(monitor_type).strip().lower())
         
         if classification:
             where_clauses.append("LOWER(COALESCE(classification, '')) = LOWER(?)")
@@ -519,18 +550,18 @@ def get_dashboard_stats(monitor_type: Optional[str] = None) -> Dict[str, Any]:
         risk_dist = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
         risk_dist.update(risk_dist_db)
 
-        # Get timeline (last 24 hours)
-        timeline_where = "WHERE timestamp > datetime('now', '-24 hours')"
+        # Get timeline (last 1 hour, grouped by minute)
+        timeline_where = "WHERE timestamp > datetime('now', '-1 hour')"
         if where_monitor.strip():
             timeline_where += " AND " + where_monitor.replace("WHERE", "").strip()
         cursor.execute("""
             SELECT 
-                strftime('%H:00', timestamp) as hour,
+                strftime('%H:%M', timestamp) as hour,
                 COUNT(*) as total,
                 SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) as anomalies
             FROM flows
             """ + timeline_where + """
-            GROUP BY strftime('%H:00', timestamp)
+            GROUP BY strftime('%H:%M', timestamp)
             ORDER BY hour
         """, params)
         timeline = [dict(row) for row in cursor.fetchall()]
@@ -590,6 +621,7 @@ def get_traffic_trends(
     src_ip: Optional[str] = None,
     protocol: Optional[str] = None,
     points: int = 72,
+    monitor_type: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Return hourly aggregated trends for traffic analysis charts.
@@ -604,6 +636,10 @@ def get_traffic_trends(
 
         where_clauses = []
         params = []
+
+        if monitor_type and str(monitor_type).strip().lower() in ("passive", "active"):
+            where_clauses.append("COALESCE(monitor_type, 'passive') = ?")
+            params.append(str(monitor_type).strip().lower())
 
         if classification:
             where_clauses.append("LOWER(COALESCE(classification, '')) = LOWER(?)")
@@ -781,12 +817,14 @@ def get_threat_data(
     risk_level: Optional[str] = None,
     src_ip: Optional[str] = None,
     protocol: Optional[str] = None,
+    monitor_type: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Return threat data (all attacks/anomalies) with optional filters + pagination.
     Threat condition:
     - is_anomaly = 1, OR
     - classification != BENIGN
+    monitor_type: 'passive', 'active', or None for combined.
     """
     with db_lock:
         conn = sqlite3.connect(str(DB_PATH))
@@ -797,6 +835,10 @@ def get_threat_data(
             "(COALESCE(is_anomaly, 0) = 1 OR LOWER(COALESCE(classification, '')) != 'benign')"
         ]
         params = []
+
+        if monitor_type and str(monitor_type).strip().lower() in ("passive", "active"):
+            where_clauses.append("COALESCE(monitor_type, 'passive') = ?")
+            params.append(str(monitor_type).strip().lower())
 
         if classification:
             where_clauses.append("LOWER(COALESCE(classification, '')) = LOWER(?)")

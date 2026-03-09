@@ -268,6 +268,7 @@ async def get_flows(
     threat_type: Optional[str] = None,
     src_ip: Optional[str] = None,
     protocol: Optional[str] = None,
+    monitor_type: Optional[str] = None,
 ):
     flows, total = db.get_flows(
         page=page,
@@ -277,6 +278,7 @@ async def get_flows(
         threat_type=threat_type,
         src_ip=src_ip,
         protocol=protocol,
+        monitor_type=monitor_type,
     )
     
     return {
@@ -296,6 +298,7 @@ async def get_traffic_trends(
     src_ip: Optional[str] = None,
     protocol: Optional[str] = None,
     points: int = 72,
+    monitor_type: Optional[str] = None,
 ):
     return db.get_traffic_trends(
         classification=classification,
@@ -304,6 +307,7 @@ async def get_traffic_trends(
         src_ip=src_ip,
         protocol=protocol,
         points=points,
+        monitor_type=monitor_type,
     )
 
 
@@ -340,8 +344,9 @@ async def get_anomalies(
     risk_level: Optional[str] = None,
     src_ip: Optional[str] = None,
     protocol: Optional[str] = None,
+    monitor_type: Optional[str] = None,
 ):
-    """Get threat data (all attack/anomaly types) from uploaded flow records in database."""
+    """Get threat data (all attack/anomaly types) from flow records. monitor_type: passive, active, or combined."""
     per_page = max(1, min(per_page, 200))
     return db.get_threat_data(
         page=page,
@@ -350,6 +355,7 @@ async def get_anomalies(
         risk_level=risk_level,
         src_ip=src_ip,
         protocol=protocol,
+        monitor_type=monitor_type,
     )
 
 
@@ -552,9 +558,9 @@ async def upload_file(file: UploadFile = File(..., alias="file")):
 
 # ── Analysis History ──────────────────────────────────────────────────────
 @app.get("/api/history")
-async def get_history(limit: int = 100):
-    """List all analyses ordered by upload time (newest first)."""
-    return {"analyses": db.get_analysis_history(limit=limit)}
+async def get_history(limit: int = 100, monitor_type: Optional[str] = None):
+    """List all analyses ordered by upload time (newest first). monitor_type: passive, active, or combined."""
+    return {"analyses": db.get_analysis_history(limit=limit, monitor_type=monitor_type)}
 
 
 @app.get("/api/history/{analysis_id}")
@@ -604,13 +610,18 @@ async def get_realtime_status():
 
 @app.get("/api/realtime/interfaces")
 async def get_realtime_interfaces():
-    """List available network interfaces for packet capture."""
+    """List interfaces that Scapy can use for packet capture (avoids 'interface not found' when user selects one)."""
     try:
-        import psutil
-        ifaces = list(psutil.net_if_addrs().keys())
-        return {"interfaces": sorted(ifaces)}
-    except ImportError:
-        return {"interfaces": ["lo", "eth0", "enp0s3", "wlan0"]}
+        from scapy.all import get_if_list
+        ifaces = get_if_list()
+        return {"interfaces": sorted(ifaces) if ifaces else ["lo"]}
+    except Exception:
+        try:
+            import psutil
+            ifaces = list(psutil.net_if_addrs().keys())
+            return {"interfaces": sorted(ifaces)}
+        except Exception:
+            return {"interfaces": ["lo", "eth0", "wlan0"]}
 
 
 # ── SBOM Security ────────────────────────────────────────────────────────
@@ -689,6 +700,9 @@ async def get_sbom():
             "serial_number": None,
             "document_version": 1,
             "total_components": _user_sbom_result.get("total_components", 0),
+            "dependencies_scanned": _user_sbom_result.get("dependencies_scanned", 0),
+            "vulnerable_packages_count": _user_sbom_result.get("vulnerable_packages_count", 0),
+            "component_scan_status": _user_sbom_result.get("component_scan_status", []),
             "metadata": {
                 "timestamp": _user_sbom_result.get("scan_timestamp"),
                 "component": {"name": _user_sbom_result.get("filename"), "type": "file"},
@@ -700,6 +714,7 @@ async def get_sbom():
                     "name": c.get("name"),
                     "version": c.get("version"),
                     "type": c.get("type", "library"),
+                    "ecosystem": c.get("ecosystem", ""),
                     "purl": c.get("purl", ""),
                     "cpe": c.get("cpe", ""),
                     "properties": [],
@@ -711,6 +726,9 @@ async def get_sbom():
         "schema": None,
         "format": "CycloneDX",
         "total_components": 0,
+        "dependencies_scanned": 0,
+        "vulnerable_packages_count": 0,
+        "component_scan_status": [],
         "metadata": {},
         "components": [],
     }
@@ -723,18 +741,26 @@ async def get_vulnerabilities():
     if _user_sbom_result:
         return {
             "total_vulnerabilities": _user_sbom_result.get("total_vulnerabilities", 0),
+            "dependencies_scanned": _user_sbom_result.get("dependencies_scanned", 0),
+            "vulnerable_packages_count": _user_sbom_result.get("vulnerable_packages_count", 0),
+            "component_scan_status": _user_sbom_result.get("component_scan_status", []),
             "severity_distribution": _user_sbom_result.get("severity_distribution", {}),
             "vulnerabilities": _user_sbom_result.get("vulnerabilities", []),
             "scan_timestamp": _user_sbom_result.get("scan_timestamp"),
             "scanner": _user_sbom_result.get("scanner", "CycloneDX"),
             "vuln_source": _user_sbom_result.get("vuln_source", "OSV"),
+            "warnings": _user_sbom_result.get("warnings", []),
         }
     return {
         "total_vulnerabilities": 0,
-        "severity_distribution": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0},
+        "dependencies_scanned": 0,
+        "vulnerable_packages_count": 0,
+        "component_scan_status": [],
+        "severity_distribution": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Unknown": 0},
         "vulnerabilities": [],
         "scan_timestamp": None,
         "scanner": None,
+        "warnings": [],
     }
 
 

@@ -43,6 +43,10 @@ FEATURE_NAMES_PATH = ARTIFACTS_DIR / "feature_names.pkl"
 TEMP_DIR = PROJECT_ROOT / "temp_processing"
 TEMP_DIR.mkdir(exist_ok=True)
 
+# Backend venv bin (for cicflowmeter) — use path relative to this file so it works under sudo
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
+_VENV_BIN = _BACKEND_ROOT / ".venv" / "bin"
+
 class DecisionEngine:
     def __init__(self):
         self.rf_model = None
@@ -255,7 +259,7 @@ class DecisionEngine:
                         lbl = infer_anomaly_threat_type(flow_features, anom_score)
 
                     if lbl == 'BENIGN':
-                        risk = anom_score * 0.6
+                        risk = anom_score * 0.6 if is_anom else 0.0
                     else:
                         if self.rf_model and self.label_encoder:
                             risk = (conf * 0.7) + (anom_score * 0.3)
@@ -441,23 +445,91 @@ class DecisionEngine:
             except Exception:
                 return None
 
-        # Map our flow dict keys to CIC-style column names
         rows = []
         for f in flows_raw:
             row = {
                 "Source IP": f.get("src_ip", "0.0.0.0"),
                 "Destination IP": f.get("dst_ip", "0.0.0.0"),
-                "Source Port": f.get("src_port"),
-                "Destination Port": f.get("dst_port"),
                 "Protocol": f.get("protocol", "TCP"),
-                "Flow Duration": f.get("duration", 0),
-                "Total Fwd Packets": f.get("total_fwd_packets", 0),
-                "Total Backward Packets": f.get("total_bwd_packets", 0),
-                "Total Length of Fwd Packets": f.get("total_length_fwd", 0),
-                "Total Length of Bwd Packets": f.get("total_length_bwd", 0),
-                "Flow Bytes/s": f.get("flow_bytes_per_sec", 0),
-                "Flow Packets/s": f.get("flow_packets_per_sec", 0),
-                "SYN Flag Count": f.get("syn_flag_count", 0),
+                "src_port": f.get("src_port", 0),
+                "dst_port": f.get("dst_port", 0),
+                "protocol": f.get("protocol_num", 6),
+                "flow_duration": f.get("flow_duration", 0),
+                "flow_byts_s": f.get("flow_byts_s", 0),
+                "flow_pkts_s": f.get("flow_pkts_s", 0),
+                "fwd_pkts_s": f.get("fwd_pkts_s", 0),
+                "bwd_pkts_s": f.get("bwd_pkts_s", 0),
+                "tot_fwd_pkts": f.get("tot_fwd_pkts", 0),
+                "tot_bwd_pkts": f.get("tot_bwd_pkts", 0),
+                "totlen_fwd_pkts": f.get("totlen_fwd_pkts", 0),
+                "totlen_bwd_pkts": f.get("totlen_bwd_pkts", 0),
+                "fwd_pkt_len_max": f.get("fwd_pkt_len_max", 0),
+                "fwd_pkt_len_min": f.get("fwd_pkt_len_min", 0),
+                "fwd_pkt_len_mean": f.get("fwd_pkt_len_mean", 0),
+                "fwd_pkt_len_std": f.get("fwd_pkt_len_std", 0),
+                "bwd_pkt_len_max": f.get("bwd_pkt_len_max", 0),
+                "bwd_pkt_len_min": f.get("bwd_pkt_len_min", 0),
+                "bwd_pkt_len_mean": f.get("bwd_pkt_len_mean", 0),
+                "bwd_pkt_len_std": f.get("bwd_pkt_len_std", 0),
+                "pkt_len_max": f.get("pkt_len_max", 0),
+                "pkt_len_min": f.get("pkt_len_min", 0),
+                "pkt_len_mean": f.get("pkt_len_mean", 0),
+                "pkt_len_std": f.get("pkt_len_std", 0),
+                "pkt_len_var": f.get("pkt_len_var", 0),
+                "fwd_header_len": f.get("fwd_header_len", 0),
+                "bwd_header_len": f.get("bwd_header_len", 0),
+                "fwd_seg_size_min": f.get("fwd_seg_size_min", 0),
+                "fwd_act_data_pkts": f.get("fwd_act_data_pkts", 0),
+                "flow_iat_mean": f.get("flow_iat_mean", 0),
+                "flow_iat_max": f.get("flow_iat_max", 0),
+                "flow_iat_min": f.get("flow_iat_min", 0),
+                "flow_iat_std": f.get("flow_iat_std", 0),
+                "fwd_iat_tot": f.get("fwd_iat_tot", 0),
+                "fwd_iat_max": f.get("fwd_iat_max", 0),
+                "fwd_iat_min": f.get("fwd_iat_min", 0),
+                "fwd_iat_mean": f.get("fwd_iat_mean", 0),
+                "fwd_iat_std": f.get("fwd_iat_std", 0),
+                "bwd_iat_tot": f.get("bwd_iat_tot", 0),
+                "bwd_iat_max": f.get("bwd_iat_max", 0),
+                "bwd_iat_min": f.get("bwd_iat_min", 0),
+                "bwd_iat_mean": f.get("bwd_iat_mean", 0),
+                "bwd_iat_std": f.get("bwd_iat_std", 0),
+                "fwd_psh_flags": f.get("fwd_psh_flags", 0),
+                "bwd_psh_flags": f.get("bwd_psh_flags", 0),
+                "fwd_urg_flags": f.get("fwd_urg_flags", 0),
+                "bwd_urg_flags": f.get("bwd_urg_flags", 0),
+                "fin_flag_cnt": f.get("fin_flag_cnt", 0),
+                "syn_flag_cnt": f.get("syn_flag_cnt", 0),
+                "rst_flag_cnt": f.get("rst_flag_cnt", 0),
+                "psh_flag_cnt": f.get("psh_flag_cnt", 0),
+                "ack_flag_cnt": f.get("ack_flag_cnt", 0),
+                "urg_flag_cnt": f.get("urg_flag_cnt", 0),
+                "ece_flag_cnt": f.get("ece_flag_cnt", 0),
+                "cwr_flag_count": f.get("cwr_flag_count", 0),
+                "down_up_ratio": f.get("down_up_ratio", 0),
+                "pkt_size_avg": f.get("pkt_size_avg", 0),
+                "init_fwd_win_byts": f.get("init_fwd_win_byts", 0),
+                "init_bwd_win_byts": f.get("init_bwd_win_byts", 0),
+                "active_max": f.get("active_max", 0),
+                "active_min": f.get("active_min", 0),
+                "active_mean": f.get("active_mean", 0),
+                "active_std": f.get("active_std", 0),
+                "idle_max": f.get("idle_max", 0),
+                "idle_min": f.get("idle_min", 0),
+                "idle_mean": f.get("idle_mean", 0),
+                "idle_std": f.get("idle_std", 0),
+                "fwd_byts_b_avg": f.get("fwd_byts_b_avg", 0),
+                "fwd_pkts_b_avg": f.get("fwd_pkts_b_avg", 0),
+                "bwd_byts_b_avg": f.get("bwd_byts_b_avg", 0),
+                "bwd_pkts_b_avg": f.get("bwd_pkts_b_avg", 0),
+                "fwd_blk_rate_avg": f.get("fwd_blk_rate_avg", 0),
+                "bwd_blk_rate_avg": f.get("bwd_blk_rate_avg", 0),
+                "fwd_seg_size_avg": f.get("fwd_seg_size_avg", 0),
+                "bwd_seg_size_avg": f.get("bwd_seg_size_avg", 0),
+                "subflow_fwd_pkts": f.get("subflow_fwd_pkts", 0),
+                "subflow_bwd_pkts": f.get("subflow_bwd_pkts", 0),
+                "subflow_fwd_byts": f.get("subflow_fwd_byts", 0),
+                "subflow_bwd_byts": f.get("subflow_bwd_byts", 0),
             }
             rows.append(row)
 
@@ -473,7 +545,7 @@ class DecisionEngine:
             return []
 
         # Fill missing feature columns with 0
-        if self.feature_names:
+        if self.feature_names is not None and len(self.feature_names) > 0:
             for col in self.feature_names:
                 if col not in df.columns:
                     df[col] = 0
@@ -517,22 +589,23 @@ class DecisionEngine:
             is_anom = bool(is_anomaly[i])
 
             if is_anom and lbl == "BENIGN":
+                r = df.iloc[i]
                 flow_features = {
-                    "duration": df.iloc[i].get("Flow Duration", 0),
-                    "flow_bytes_per_sec": df.iloc[i].get("Flow Bytes/s", 0),
-                    "flow_packets_per_sec": df.iloc[i].get("Flow Packets/s", 0),
-                    "total_fwd_packets": df.iloc[i].get("Total Fwd Packets", 0),
-                    "total_bwd_packets": df.iloc[i].get("Total Backward Packets", 0),
-                    "total_length_fwd": df.iloc[i].get("Total Length of Fwd Packets", 0),
-                    "total_length_bwd": df.iloc[i].get("Total Length of Bwd Packets", 0),
-                    "dst_port": df.iloc[i].get("Destination Port"),
-                    "protocol": df.iloc[i].get("Protocol"),
-                    "syn_flag_cnt": df.iloc[i].get("SYN Flag Count", 0),
+                    "duration": r.get("flow_duration", r.get("Flow Duration", 0)),
+                    "flow_bytes_per_sec": r.get("flow_byts_s", r.get("Flow Bytes/s", 0)),
+                    "flow_packets_per_sec": r.get("flow_pkts_s", r.get("Flow Packets/s", 0)),
+                    "total_fwd_packets": r.get("tot_fwd_pkts", r.get("Total Fwd Packets", 0)),
+                    "total_bwd_packets": r.get("tot_bwd_pkts", r.get("Total Backward Packets", 0)),
+                    "total_length_fwd": r.get("totlen_fwd_pkts", r.get("Total Length of Fwd Packets", 0)),
+                    "total_length_bwd": r.get("totlen_bwd_pkts", r.get("Total Length of Bwd Packets", 0)),
+                    "dst_port": r.get("dst_port", r.get("Destination Port")),
+                    "protocol": r.get("Protocol", r.get("protocol", "")),
+                    "syn_flag_cnt": r.get("syn_flag_cnt", r.get("SYN Flag Count", 0)),
                 }
                 lbl = infer_anomaly_threat_type(flow_features, anom_score)
 
             if lbl == "BENIGN":
-                risk = anom_score * 0.6
+                risk = anom_score * 0.6 if is_anom else 0.0
             else:
                 if self.rf_model and self.label_encoder:
                     risk = (conf * 0.7) + (anom_score * 0.3)
@@ -549,22 +622,23 @@ class DecisionEngine:
                 lbl, not (is_anom and original_lbl == "BENIGN"), conf, anom_score, risk_level
             )
 
+            r = df.iloc[i]
             result.append({
                 "id": str(uuid.uuid4())[:8],
                 "analysis_id": None,
                 "upload_filename": "realtime",
-                "src_ip": str(df.iloc[i].get("Source IP", "N/A")),
-                "dst_ip": str(df.iloc[i].get("Destination IP", "N/A")),
-                "src_port": _safe_int(df.iloc[i].get("Source Port")),
-                "dst_port": _safe_int(df.iloc[i].get("Destination Port")),
-                "protocol": str(df.iloc[i].get("Protocol", "Unknown")),
-                "duration": _safe_float(df.iloc[i].get("Flow Duration")),
-                "total_fwd_packets": _safe_int(df.iloc[i].get("Total Fwd Packets")),
-                "total_bwd_packets": _safe_int(df.iloc[i].get("Total Backward Packets")),
-                "total_length_fwd": _safe_int(df.iloc[i].get("Total Length of Fwd Packets")),
-                "total_length_bwd": _safe_int(df.iloc[i].get("Total Length of Bwd Packets")),
-                "flow_bytes_per_sec": _safe_float(df.iloc[i].get("Flow Bytes/s")),
-                "flow_packets_per_sec": _safe_float(df.iloc[i].get("Flow Packets/s")),
+                "src_ip": str(r.get("Source IP", "N/A")),
+                "dst_ip": str(r.get("Destination IP", "N/A")),
+                "src_port": _safe_int(r.get("src_port", r.get("Source Port"))),
+                "dst_port": _safe_int(r.get("dst_port", r.get("Destination Port"))),
+                "protocol": str(r.get("Protocol", "Unknown")),
+                "duration": _safe_float(r.get("flow_duration", r.get("Flow Duration"))),
+                "total_fwd_packets": _safe_int(r.get("tot_fwd_pkts", r.get("Total Fwd Packets"))),
+                "total_bwd_packets": _safe_int(r.get("tot_bwd_pkts", r.get("Total Backward Packets"))),
+                "total_length_fwd": _safe_int(r.get("totlen_fwd_pkts", r.get("Total Length of Fwd Packets"))),
+                "total_length_bwd": _safe_int(r.get("totlen_bwd_pkts", r.get("Total Length of Bwd Packets"))),
+                "flow_bytes_per_sec": _safe_float(r.get("flow_byts_s", r.get("Flow Bytes/s"))),
+                "flow_packets_per_sec": _safe_float(r.get("flow_pkts_s", r.get("Flow Packets/s"))),
                 "timestamp": pd.Timestamp.now().isoformat(),
                 "classification": lbl,
                 "threat_type": threat_type_val,
@@ -580,19 +654,26 @@ class DecisionEngine:
         return result
 
     def _convert_pcap_to_csv(self, pcap_path: str, process_id: str) -> str:
-        """Run cicflowmeter to convert PCAP to CSV."""
+        """Run cicflowmeter to convert PCAP to CSV. Uses same Python/venv so the binary is found."""
         output_dir = TEMP_DIR / process_id
         output_dir.mkdir(parents=True, exist_ok=True)
-        # cicflowmeter adds proper extension, so we give it the dir and file prefix or just output dir?
-        # cicflowmeter -f file.pcap -c file.csv
         csv_name = f"{process_id}.csv"
         csv_path = output_dir / csv_name
-        
-        cmd = ["cicflowmeter", "-f", pcap_path, "-c", str(csv_path)]
+
+        # Use backend venv's cicflowmeter so it works when run under sudo (subprocess doesn't see venv PATH)
+        cicflowmeter_bin = _VENV_BIN / "cicflowmeter"
+        if not cicflowmeter_bin.exists():
+            cicflowmeter_bin = _VENV_BIN / "cicflowmeter.exe"
+        if not cicflowmeter_bin.exists():
+            exe_dir = Path(sys.executable).resolve().parent
+            cicflowmeter_bin = exe_dir / "cicflowmeter" if (exe_dir / "cicflowmeter").exists() else (shutil.which("cicflowmeter") or "cicflowmeter")
+        cicflowmeter_bin = str(cicflowmeter_bin)
+
+        cmd = [cicflowmeter_bin, "-f", pcap_path, "-c", str(csv_path)]
         logger.info(f"Running: {' '.join(cmd)}")
-        
+
         result = subprocess.run(cmd, capture_output=True, text=True)
-        
+
         if result.returncode != 0:
             logger.error(f"cicflowmeter failed: {result.stderr}")
             raise RuntimeError(f"Failed to convert PCAP to CSV: {result.stderr}")

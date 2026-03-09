@@ -116,7 +116,7 @@ export default function Upload() {
 
     const renderRows = (rows = []) => {
         if (!rows.length) {
-            return <p className="text-xs text-slate-400">No detailed rows found for this section.</p>;
+            return <p className="text-small text-text-muted">No detailed rows found for this section.</p>;
         }
 
         return (
@@ -137,13 +137,13 @@ export default function Upload() {
                     <tbody>
                         {rows.map((row) => (
                             <tr key={`${row.id}-${row.classification || row.src_ip}`}>
-                                <td className="text-xs text-slate-200" title={row.classification_reason || ''}>{row.classification || '—'}</td>
-                                <td className="text-xs text-amber-200">{row.threat_type || '—'}</td>
-                                <td className="text-xs font-mono text-cyan-300">{row.cve_refs ? String(row.cve_refs).replace(/,/g, ', ') : '—'}</td>
-                                <td className="font-mono text-xs">{row.src_ip || '—'}</td>
-                                <td className="font-mono text-xs">{row.dst_ip || '—'}</td>
-                                <td className="text-xs text-cyan-300">{row.protocol || '—'}</td>
-                                <td className="text-xs text-amber-300">{Math.round((row.anomaly_score || 0) * 100)}%</td>
+                                <td className="text-small text-text-primary" title={row.classification_reason || ''}>{row.classification || '—'}</td>
+                                <td className="text-small text-amber-200">{row.threat_type || '—'}</td>
+                                <td className="text-small font-mono text-primary">{row.cve_refs ? String(row.cve_refs).replace(/,/g, ', ') : '—'}</td>
+                                <td className="cell-ip">{row.src_ip || '—'}</td>
+                                <td className="cell-ip">{row.dst_ip || '—'}</td>
+                                <td className="text-small text-primary">{row.protocol || '—'}</td>
+                                <td className="text-small text-warning">{Math.round((row.anomaly_score || 0) * 100)}%</td>
                                 <td title={row.classification_reason || ''}>
                                     <span className={`px-2 py-0.5 rounded-md text-xs font-medium badge-${(row.risk_level || 'low').toLowerCase()}`}>
                                         {row.risk_level || 'Low'} ({Math.round((row.risk_score || 0) * 100)}%)
@@ -220,11 +220,11 @@ export default function Upload() {
     };
 
     return (
-        <div className="max-w-4xl mx-auto space-y-6">
+        <div className="max-w-4xl mx-auto space-y-8">
             {/* Header */}
             <div className="text-center mb-8">
-                <h1 className="text-2xl font-bold gradient-text mb-2">Upload Network Capture</h1>
-                <p className="text-sm text-slate-400">
+                <h1 className="text-h1 font-bold text-primary mb-2">Upload Network Capture</h1>
+                <p className="text-body text-text-muted">
                     Upload PCAP, PCAPNG, or CSV flow files for ML-powered traffic analysis
                 </p>
             </div>
@@ -234,8 +234,7 @@ export default function Upload() {
                 onDrop={handleDrop}
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                 onDragLeave={() => setDragOver(false)}
-                className={`drop-zone rounded-2xl p-12 text-center cursor-pointer ${dragOver ? 'drag-over' : ''
-                    }`}
+                className={`drop-zone rounded-xl p-12 text-center cursor-pointer ${dragOver ? 'drag-over' : ''}`}
                 onClick={() => document.getElementById('file-input').click()}
             >
                 <input
@@ -246,16 +245,16 @@ export default function Upload() {
                     className="hidden"
                 />
                 <div className="flex flex-col items-center">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-500/10 to-purple-500/10 border border-cyan-500/20 flex items-center justify-center mb-4">
-                        <FileUp size={28} className="text-cyan-400" />
+                    <div className="w-16 h-16 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
+                        <FileUp size={28} className="text-primary" />
                     </div>
-                    <p className="text-base font-semibold text-white mb-1">
+                    <p className="text-body font-semibold text-text-primary mb-1">
                         {dragOver ? 'Drop your file here' : 'Drag & drop your file here'}
                     </p>
-                    <p className="text-sm text-slate-400 mb-4">or click to browse</p>
+                    <p className="text-body text-text-muted mb-4">or click to browse</p>
                     <div className="flex gap-2">
                         {['.pcap', '.pcapng', '.csv'].map((ext) => (
-                            <span key={ext} className="px-3 py-1 rounded-lg bg-dark-700 text-xs font-mono text-cyan-400 border border-white/5">
+                            <span key={ext} className="px-3 py-1 rounded-lg bg-surface text-small font-mono text-primary border border-white/10">
                                 {ext}
                             </span>
                         ))}
@@ -265,15 +264,15 @@ export default function Upload() {
 
             {/* Selected File */}
             {file && (
-                <div className="glass-card p-4 animate-slide-up">
+                <div className="glass-card p-6 animate-slide-up">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                            <div className="p-2 rounded-xl bg-cyan-500/10">
-                                <FileText size={20} className="text-cyan-400" />
+                            <div className="p-2 rounded-xl bg-primary/10">
+                                <FileText size={20} className="text-primary" />
                             </div>
                             <div>
-                                <p className="text-sm font-medium text-white">{file.name}</p>
-                                <p className="text-xs text-slate-400">{formatSize(file.size)}</p>
+                                <p className="text-body font-medium text-text-primary">{file.name}</p>
+                                <p className="text-small text-text-muted">{formatSize(file.size)}</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-3">
@@ -290,14 +289,14 @@ export default function Upload() {
                                     setRiskRowsVisible(10);
                                     setUploadFilter({ type: '', value: '' });
                                 }}
-                                className="text-xs text-slate-400 hover:text-red-400 transition-colors"
+                                className="text-small text-text-muted hover:text-danger transition-colors"
                             >
                                 Remove
                             </button>
                             <button
                                 onClick={handleUpload}
                                 disabled={uploading}
-                                className="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-500 text-white text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
+                                className="px-5 py-2.5 rounded-[10px] bg-primary text-white text-body font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
                             >
                                 {uploading ? (
                                     <>
@@ -318,10 +317,10 @@ export default function Upload() {
 
             {/* Error */}
             {error && (
-                <div className="glass-card p-4 border-red-500/20 animate-slide-up">
+                <div className="glass-card p-4 border-danger/30 bg-danger/10 animate-slide-up">
                     <div className="flex items-center gap-3">
-                        <XCircle size={20} className="text-red-400" />
-                        <p className="text-sm text-red-300">{error}</p>
+                        <XCircle size={20} className="text-danger" />
+                        <p className="text-body text-red-300">{error}</p>
                     </div>
                 </div>
             )}
@@ -329,10 +328,11 @@ export default function Upload() {
             {/* Results */}
             {result && (
                 <div className="space-y-4 animate-slide-up">
-                    <div className="glass-card p-5 border-green-500/20">
+                    <h2 className="section-header">Analysis Results</h2>
+                    <div className="glass-card p-6 border-success/20">
                         <div className="flex items-center gap-3 mb-4">
-                            <CheckCircle2 size={20} className="text-green-400" />
-                            <h3 className="text-base font-semibold text-white">Analysis Complete</h3>
+                            <CheckCircle2 size={20} className="text-success" />
+                            <h3 className="text-h2 font-semibold text-text-primary">Analysis Complete</h3>
                         </div>
 
                         {/* Result KPIs */}
@@ -362,13 +362,13 @@ export default function Upload() {
                         </div>
 
                         {expandedSection === 'total_flows' && (
-                            <div className="mb-5 p-4 rounded-xl bg-dark-800/50 border border-white/10">
-                                <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3">Protocol Distribution</h4>
+                            <div className="mb-5 p-4 rounded-xl bg-background/60 border border-white/10">
+                                <h4 className="text-small font-semibold text-text-primary uppercase tracking-wider mb-3">Protocol Distribution</h4>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                                     {Object.entries(result.report_details?.protocol_distribution || {}).map(([name, count]) => (
-                                        <div key={name} className="p-2 rounded-lg bg-dark-900/50 border border-white/5">
-                                            <p className="text-xs text-slate-400">{name}</p>
-                                            <p className="text-sm font-semibold text-white">{count}</p>
+                                        <div key={name} className="p-2 rounded-lg bg-surface border border-white/10">
+                                            <p className="text-small text-text-muted">{name}</p>
+                                            <p className="text-body font-semibold text-text-primary">{count}</p>
                                         </div>
                                     ))}
                                 </div>
@@ -376,18 +376,18 @@ export default function Upload() {
                         )}
 
                         {expandedSection === 'anomalies' && (
-                            <div className="mb-5 p-4 rounded-xl bg-dark-800/50 border border-white/10">
-                                <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3">Anomaly Types</h4>
+                            <div className="mb-5 p-4 rounded-xl bg-background/60 border border-white/10">
+                                <h4 className="text-small font-semibold text-text-primary uppercase tracking-wider mb-3">Anomaly Types</h4>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
                                     {Object.entries(result.report_details?.anomaly_breakdown || {}).map(([name, count]) => (
                                         <button
                                             key={name}
                                             type="button"
                                             onClick={() => setUploadFilter({ type: 'classification', value: name })}
-                                            className={`p-2 rounded-lg bg-dark-900/50 border text-left ${uploadFilter.type === 'classification' && uploadFilter.value === name ? 'border-cyan-400/70' : 'border-white/5'} hover:border-cyan-400/40`}
+                                            className={`p-2 rounded-lg bg-surface border text-left transition-colors ${uploadFilter.type === 'classification' && uploadFilter.value === name ? 'border-primary' : 'border-white/10 hover:border-primary/50'}`}
                                         >
-                                            <p className="text-xs text-slate-400">{name}</p>
-                                            <p className="text-sm font-semibold text-white">{count}</p>
+                                            <p className="text-small text-text-muted">{name}</p>
+                                            <p className="text-body font-semibold text-text-primary">{count}</p>
                                         </button>
                                     ))}
                                 </div>
@@ -398,7 +398,7 @@ export default function Upload() {
                                             type="button"
                                             onClick={handleViewMoreAnomalies}
                                             disabled={loadingMoreFlows}
-                                            className="px-3 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-300 text-xs font-semibold border border-cyan-400/30 hover:bg-cyan-500/25 disabled:opacity-60"
+                                            className="px-4 py-2 rounded-[10px] border border-primary text-primary text-small font-semibold hover:bg-primary/10 disabled:opacity-60"
                                         >
                                             {loadingMoreFlows ? 'Loading...' : 'View More'}
                                         </button>
@@ -408,18 +408,18 @@ export default function Upload() {
                         )}
 
                         {expandedSection === 'avg_risk' && (
-                            <div className="mb-5 p-4 rounded-xl bg-dark-800/50 border border-white/10">
-                                <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3">Risk Breakdown</h4>
+                            <div className="mb-5 p-4 rounded-xl bg-background/60 border border-white/10">
+                                <h4 className="text-small font-semibold text-text-primary uppercase tracking-wider mb-3">Risk Breakdown</h4>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
                                     {Object.entries(result.report_details?.risk_breakdown || {}).map(([level, count]) => (
                                         <button
                                             key={level}
                                             type="button"
                                             onClick={() => setUploadFilter({ type: 'risk', value: level })}
-                                            className={`p-2 rounded-lg bg-dark-900/50 border text-left ${uploadFilter.type === 'risk' && uploadFilter.value === level ? 'border-cyan-400/70' : 'border-white/5'} hover:border-cyan-400/40`}
+                                            className={`p-2 rounded-lg bg-surface border text-left transition-colors ${uploadFilter.type === 'risk' && uploadFilter.value === level ? 'border-primary' : 'border-white/10 hover:border-primary/50'}`}
                                         >
-                                            <p className="text-xs text-slate-400">{level}</p>
-                                            <p className="text-sm font-semibold text-white">{count}</p>
+                                            <p className="text-small text-text-muted">{level}</p>
+                                            <p className="text-body font-semibold text-text-primary">{count}</p>
                                         </button>
                                     ))}
                                 </div>
@@ -430,7 +430,7 @@ export default function Upload() {
                                             type="button"
                                             onClick={handleViewMoreRisk}
                                             disabled={loadingMoreFlows}
-                                            className="px-3 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-300 text-xs font-semibold border border-cyan-400/30 hover:bg-cyan-500/25 disabled:opacity-60"
+                                            className="px-4 py-2 rounded-[10px] border border-primary text-primary text-small font-semibold hover:bg-primary/10 disabled:opacity-60"
                                         >
                                             {loadingMoreFlows ? 'Loading...' : 'View More'}
                                         </button>
@@ -440,24 +440,24 @@ export default function Upload() {
                         )}
 
                         {/* Attack Breakdown */}
-                        <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Attack Distribution</h4>
+                        <h4 className="text-small font-semibold text-text-muted uppercase tracking-wider mb-3">Attack Distribution</h4>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
                             {Object.entries(result.attack_distribution || {}).map(([type, count]) => (
                                 <button
                                     key={type}
                                     type="button"
                                     onClick={() => setExpandedSection(expandedSection === `attack:${type}` ? null : `attack:${type}`)}
-                                    className={`p-3 rounded-xl bg-dark-800/50 border border-white/5 text-left transition-colors hover:border-cyan-400/40 ${expandedSection === `attack:${type}` ? 'border-cyan-400/70' : ''}`}
+                                    className={`p-3 rounded-xl bg-background/60 border text-left transition-colors hover:border-primary/50 ${expandedSection === `attack:${type}` ? 'border-primary' : 'border-white/10'}`}
                                 >
-                                    <p className="text-xs text-slate-400 mb-1">{type}</p>
-                                    <p className="text-lg font-bold text-white">{count}</p>
+                                    <p className="text-small text-text-muted mb-1">{type}</p>
+                                    <p className="text-lg font-bold text-text-primary">{count}</p>
                                 </button>
                             ))}
                         </div>
 
                         {expandedSection?.startsWith('attack:') && (
-                            <div className="mb-5 p-4 rounded-xl bg-dark-800/50 border border-white/10">
-                                <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3">
+                            <div className="mb-5 p-4 rounded-xl bg-background/60 border border-white/10">
+                                <h4 className="text-small font-semibold text-text-primary uppercase tracking-wider mb-3">
                                     {expandedSection.replace('attack:', '')} Sample Flows
                                 </h4>
                                 {renderRows(result.report_details?.attack_flow_samples?.[expandedSection.replace('attack:', '')] || [])}
@@ -468,7 +468,7 @@ export default function Upload() {
                         {fileFlows.length > 0 && (
                             <>
                                 <div className="flex items-center justify-between mb-3">
-                                    <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                                    <h4 className="text-small font-semibold text-text-muted uppercase tracking-wider">
                                         All Flows From This File ({filteredFileFlows.length}/{result.total_flows || 0})
                                     </h4>
                                     <div className="flex items-center gap-2">
@@ -476,7 +476,7 @@ export default function Upload() {
                                             <button
                                                 type="button"
                                                 onClick={() => setUploadFilter({ type: '', value: '' })}
-                                                className="px-3 py-1.5 rounded-lg border border-white/15 text-slate-300 text-xs hover:border-cyan-400/30"
+                                                className="px-3 py-2 rounded-[10px] border border-white/15 text-text-primary text-small hover:border-primary/50"
                                             >
                                                 Clear Small Filter
                                             </button>
@@ -486,7 +486,7 @@ export default function Upload() {
                                                 type="button"
                                                 onClick={() => loadMoreFlows(result.id, flowsPage, false)}
                                                 disabled={loadingMoreFlows}
-                                                className="px-3 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-300 text-xs font-semibold border border-cyan-400/30 hover:bg-cyan-500/25 disabled:opacity-60"
+                                                className="px-4 py-2 rounded-[10px] border border-primary text-primary text-small font-semibold hover:bg-primary/10 disabled:opacity-60"
                                             >
                                                 {loadingMoreFlows ? 'Loading...' : 'View More'}
                                             </button>
@@ -507,20 +507,20 @@ export default function Upload() {
                                         <tbody>
                                             {filteredFileFlows.map((flow) => (
                                                 <tr key={flow.id}>
-                                                    <td className="font-mono text-xs">{flow.src_ip}</td>
-                                                    <td className="font-mono text-xs">{flow.dst_ip}</td>
+                                                    <td className="cell-ip">{flow.src_ip}</td>
+                                                    <td className="cell-ip">{flow.dst_ip}</td>
                                                     <td>
-                                                        <span className="px-2 py-0.5 rounded-md bg-dark-700 text-xs font-mono text-cyan-400">
+                                                        <span className="px-2 py-0.5 rounded-md bg-surface text-small font-mono text-primary border border-white/10">
                                                             {flow.protocol}
                                                         </span>
                                                     </td>
                                                     <td>
-                                                        <span className={`text-xs font-medium ${flow.classification === 'Benign' ? 'text-green-400' : 'text-red-400'}`}>
+                                                        <span className={`text-small font-medium ${flow.classification === 'Benign' ? 'text-success' : 'text-danger'}`}>
                                                             {flow.classification}
                                                         </span>
                                                     </td>
                                                     <td>
-                                                        <span className={`px-2 py-0.5 rounded-md text-xs font-medium badge-${(flow.risk_level || 'low').toLowerCase()}`}>
+                                                        <span className={`px-2 py-0.5 rounded-md text-small font-medium badge-${(flow.risk_level || 'low').toLowerCase()}`}>
                                                             {flow.risk_level || 'Low'}
                                                         </span>
                                                     </td>
@@ -530,7 +530,7 @@ export default function Upload() {
                                     </table>
                                 </div>
                                 {loadingMoreFlows && (
-                                    <p className="text-xs text-slate-400 mt-2">Loading more rows...</p>
+                                    <p className="text-small text-text-muted mt-2">Loading more rows...</p>
                                 )}
                             </>
                         )}
@@ -548,12 +548,12 @@ function ResultKPI({ label, value, icon: Icon, isActive = false, onClick }) {
         <button
             type="button"
             onClick={onClick}
-            className={`p-3 rounded-xl bg-dark-800/50 border text-center w-full ${isActive ? 'border-cyan-400/70' : 'border-white/5'} ${clickable ? 'hover:border-cyan-400/40 transition-colors' : ''}`}
+            className={`p-3 rounded-xl bg-background/60 border text-center w-full transition-colors ${isActive ? 'border-primary' : 'border-white/10'} ${clickable ? 'hover:border-primary/50' : ''}`}
             disabled={!clickable}
         >
-            <Icon size={16} className="mx-auto text-cyan-400 mb-1" />
-            <p className="text-lg font-bold text-white">{value}</p>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center justify-center gap-1">
+            <Icon size={16} className="mx-auto text-primary mb-1" />
+            <p className="text-lg font-bold text-text-primary">{value}</p>
+            <p className="text-small text-text-muted uppercase tracking-wider flex items-center justify-center gap-1">
                 {label}
                 {clickable && (isActive ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
             </p>

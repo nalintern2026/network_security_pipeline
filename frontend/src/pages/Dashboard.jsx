@@ -15,7 +15,8 @@ import { Doughnut, Bar, Line } from 'react-chartjs-2';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement, Filler);
 
-const chartColors = ['#00d4ff', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#a855f7'];
+/* Chart palette: distinct from background #222831 / #393E46 - no grays */
+const chartColors = ['#00ADB5', '#3B82F6', '#22C55E', '#F59E0B', '#EF4444', '#A855F7', '#EC4899'];
 
 export default function Dashboard() {
     const [stats, setStats] = useState(null);
@@ -77,46 +78,46 @@ export default function Dashboard() {
     const riskPercent = Math.round((statsData.avg_risk_score || 0) * 100);
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-8">
             {/* Toggle: Passive / Active */}
             <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">View</span>
-                    <div className="flex rounded-xl bg-dark-800 border border-white/5 p-0.5">
+                    <span className="text-small font-medium text-text-muted uppercase tracking-wider">View</span>
+                    <div className="flex rounded-xl bg-surface border border-white/10 p-0.5">
                         <button
                             type="button"
                             onClick={() => setMonitorView('passive')}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${monitorView === 'passive'
-                                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
-                                : 'text-slate-400 hover:text-white'}`}
+                            className={`px-4 py-2 rounded-lg text-body font-medium transition-colors ${monitorView === 'passive'
+                                ? 'bg-primary/15 text-primary border border-primary/30'
+                                : 'text-text-muted hover:text-text-primary'}`}
                         >
                             Passive
                         </button>
                         <button
                             type="button"
                             onClick={() => setMonitorView('active')}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${monitorView === 'active'
-                                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
-                                : 'text-slate-400 hover:text-white'}`}
+                            className={`px-4 py-2 rounded-lg text-body font-medium transition-colors ${monitorView === 'active'
+                                ? 'bg-primary/15 text-primary border border-primary/30'
+                                : 'text-text-muted hover:text-text-primary'}`}
                         >
                             Active
                         </button>
                     </div>
-                    <span className="text-xs text-slate-500">
+                    <span className="text-small text-text-muted">
                         {monitorView === 'passive' ? 'File uploads' : 'Live monitoring'}
                     </span>
                 </div>
                 <div className="flex items-center gap-3">
-                    <p className="text-xs text-slate-500">
+                    <p className="text-small text-text-muted">
                         {monitorView === 'active' && (
-                            <span className="text-cyan-400 font-medium">Live • </span>
+                            <span className="text-primary font-medium">Live • </span>
                         )}
                         Last updated: {lastFetch || 'Loading...'} | Total Flows: {statsData.total_flows}
                     </p>
                     <button
                         onClick={handleManualRefresh}
                         disabled={refreshing}
-                        className="px-4 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-sm hover:bg-cyan-500/20 transition-colors disabled:opacity-50"
+                        className="px-4 py-2.5 rounded-[10px] border border-primary text-primary text-body font-medium hover:bg-primary/10 transition-colors disabled:opacity-50"
                     >
                         {refreshing ? '⟳ Refreshing...' : '🔄 Refresh'}
                     </button>
@@ -125,19 +126,19 @@ export default function Dashboard() {
 
             {/* Header */}
             <div className="flex justify-between items-center">
-                <h1 className="text-2xl font-bold gradient-text">Network Dashboard</h1>
+                <h1 className="text-h1 font-bold text-primary">Network Dashboard</h1>
             </div>
 
             {error && (
-                <div className="glass-card p-4 border-red-500/20 bg-red-500/5">
-                    <p className="text-red-400 text-sm">⚠️ {error}</p>
+                <div className="glass-card p-4 border-danger/30 bg-danger/10">
+                    <p className="text-danger text-body">⚠️ {error}</p>
                 </div>
             )}
 
             {statsData.total_flows === 0 && !error && (
-                <div className="glass-card p-8 text-center border-yellow-500/20 bg-yellow-500/5">
-                    <p className="text-yellow-300 mb-2">📤 No data yet</p>
-                    <p className="text-sm text-slate-400">
+                <div className="glass-card p-8 text-center border-warning/30 bg-warning/10">
+                    <p className="text-warning mb-2">📤 No data yet</p>
+                    <p className="text-body text-text-muted">
                         {monitorView === 'passive'
                             ? 'Upload a network file on the Upload page to see analysis results here.'
                             : 'Start Active Monitoring (use Default/lo), then use the app to generate traffic. Backend must run with sudo.'}
@@ -146,6 +147,7 @@ export default function Dashboard() {
             )}
 
             {/* KPI Cards */}
+            <h2 className="section-header">Network Overview</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <KPICard
                     title="Total Flows"
@@ -183,11 +185,12 @@ export default function Dashboard() {
             </div>
 
             {/* Charts Row */}
+            <h2 className="section-header">Traffic Analysis</h2>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 {/* Attack Distribution Doughnut */}
-                <div className="glass-card p-5">
-                    <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
-                        <Zap size={14} className="text-cyan-400" />
+                <div className="glass-card p-6">
+                    <h3 className="text-h2 font-semibold text-text-primary mb-4 flex items-center gap-2">
+                        <Zap size={14} className="text-primary" />
                         Attack Distribution
                     </h3>
                     <div className="h-56 flex items-center justify-center">
@@ -206,10 +209,30 @@ export default function Dashboard() {
                                 responsive: true,
                                 maintainAspectRatio: false,
                                 cutout: '65%',
+                                interaction: { mode: 'nearest', intersect: true },
                                 plugins: {
                                     legend: {
                                         position: 'right',
-                                        labels: { color: '#94a3b8', font: { size: 11, family: 'Inter' }, padding: 8, usePointStyle: true, pointStyleWidth: 8 },
+                                        labels: { color: '#B0B5BA', font: { size: 13, family: 'Inter' }, padding: 8, usePointStyle: true, pointStyleWidth: 8 },
+                                    },
+                                    tooltip: {
+                                        enabled: true,
+                                        backgroundColor: 'rgba(34, 40, 49, 0.95)',
+                                        titleColor: '#EEEEEE',
+                                        bodyColor: '#B0B5BA',
+                                        borderColor: 'rgba(0, 173, 181, 0.3)',
+                                        borderWidth: 1,
+                                        cornerRadius: 8,
+                                        padding: 12,
+                                        titleFont: { size: 13, weight: 'bold', family: 'Inter' },
+                                        bodyFont: { size: 12, family: 'Inter' },
+                                        callbacks: {
+                                            label: (ctx) => {
+                                                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                                                const pct = total > 0 ? ((ctx.parsed / total) * 100).toFixed(1) : 0;
+                                                return ` ${ctx.label}: ${ctx.parsed.toLocaleString()} (${pct}%)`;
+                                            },
+                                        },
                                     },
                                 },
                             }}
@@ -218,10 +241,10 @@ export default function Dashboard() {
                 </div>
 
                 {/* Timeline Line Chart */}
-                <div className="glass-card p-5 lg:col-span-2">
-                    <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
-                        <TrendingUp size={14} className="text-cyan-400" />
-                        Traffic Timeline (24h)
+                <div className="glass-card p-6 lg:col-span-2">
+                    <h3 className="text-h2 font-semibold text-text-primary mb-4 flex items-center gap-2">
+                        <TrendingUp size={14} className="text-primary" />
+                        Traffic Timeline (Last 1h)
                     </h3>
                     <div className="h-56">
                         <Line
@@ -231,23 +254,35 @@ export default function Dashboard() {
                                     {
                                         label: 'Total Flows',
                                         data: (statsData.timeline || []).map(t => t.total),
-                                        borderColor: '#00d4ff',
-                                        backgroundColor: 'rgba(0, 212, 255, 0.08)',
+                                        borderColor: '#00ADB5',
+                                        backgroundColor: 'rgba(0, 173, 181, 0.12)',
                                         fill: true,
                                         tension: 0.4,
-                                        pointRadius: 0,
-                                        pointHoverRadius: 4,
+                                        pointRadius: 3,
+                                        pointHoverRadius: 7,
+                                        pointBackgroundColor: '#00ADB5',
+                                        pointBorderColor: '#222831',
+                                        pointBorderWidth: 2,
+                                        pointHoverBackgroundColor: '#00ADB5',
+                                        pointHoverBorderColor: '#fff',
+                                        pointHoverBorderWidth: 2,
                                         borderWidth: 2,
                                     },
                                     {
                                         label: 'Anomalies',
                                         data: (statsData.timeline || []).map(t => t.anomalies),
-                                        borderColor: '#ef4444',
-                                        backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                                        borderColor: '#EF4444',
+                                        backgroundColor: 'rgba(239, 68, 68, 0.12)',
                                         fill: true,
                                         tension: 0.4,
-                                        pointRadius: 0,
-                                        pointHoverRadius: 4,
+                                        pointRadius: 3,
+                                        pointHoverRadius: 7,
+                                        pointBackgroundColor: '#EF4444',
+                                        pointBorderColor: '#222831',
+                                        pointBorderWidth: 2,
+                                        pointHoverBackgroundColor: '#EF4444',
+                                        pointHoverBorderColor: '#fff',
+                                        pointHoverBorderWidth: 2,
                                         borderWidth: 2,
                                     },
                                 ],
@@ -255,12 +290,32 @@ export default function Dashboard() {
                             options={{
                                 responsive: true,
                                 maintainAspectRatio: false,
+                                interaction: { mode: 'index', intersect: false },
+                                hover: { mode: 'index', intersect: false },
                                 scales: {
-                                    x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#64748b', font: { size: 10 } } },
-                                    y: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#64748b', font: { size: 10 } } },
+                                    x: { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#B0B5BA', font: { size: 13 } } },
+                                    y: { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#B0B5BA', font: { size: 13 } }, beginAtZero: true },
                                 },
                                 plugins: {
-                                    legend: { labels: { color: '#94a3b8', font: { size: 11 }, usePointStyle: true, pointStyleWidth: 8 } },
+                                    legend: { labels: { color: '#B0B5BA', font: { size: 13 }, usePointStyle: true, pointStyleWidth: 8 } },
+                                    tooltip: {
+                                        enabled: true,
+                                        backgroundColor: 'rgba(34, 40, 49, 0.95)',
+                                        titleColor: '#EEEEEE',
+                                        bodyColor: '#B0B5BA',
+                                        borderColor: 'rgba(0, 173, 181, 0.3)',
+                                        borderWidth: 1,
+                                        cornerRadius: 8,
+                                        padding: 12,
+                                        titleFont: { size: 13, weight: 'bold', family: 'Inter' },
+                                        bodyFont: { size: 12, family: 'Inter' },
+                                        displayColors: true,
+                                        boxPadding: 4,
+                                        callbacks: {
+                                            title: (items) => items[0] ? `Time: ${items[0].label}` : '',
+                                            label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()} flows`,
+                                        },
+                                    },
                                 },
                             }}
                         />
@@ -269,11 +324,12 @@ export default function Dashboard() {
             </div>
 
             {/* Bottom Row */}
+            <h2 className="section-header">Risk & Protocols</h2>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* Risk Distribution */}
-                <div className="glass-card p-5">
-                    <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
-                        <Shield size={14} className="text-purple-400" />
+                <div className="glass-card p-6">
+                    <h3 className="text-h2 font-semibold text-text-primary mb-4 flex items-center gap-2">
+                        <Shield size={14} className="text-primary" />
                         Risk Distribution
                     </h3>
                     <div className="space-y-3 mt-2">
@@ -281,21 +337,21 @@ export default function Dashboard() {
                             const total = statsData.total_flows || 1;
                             const pct = Math.round((count / total) * 100);
                             const colorMap = {
-                                Critical: { bg: 'bg-red-500', text: 'text-red-400' },
-                                High: { bg: 'bg-orange-500', text: 'text-orange-400' },
-                                Medium: { bg: 'bg-purple-500', text: 'text-purple-400' },
-                                Low: { bg: 'bg-green-500', text: 'text-green-400' },
+                                Critical: { bg: 'bg-danger', text: 'text-red-400' },
+                                High: { bg: 'bg-warning', text: 'text-amber-400' },
+                                Medium: { bg: 'bg-[#A855F7]', text: 'text-purple-400' },
+                                Low: { bg: 'bg-success', text: 'text-green-400' },
                             };
-                            const c = colorMap[level] || { bg: 'bg-slate-500', text: 'text-slate-400' };
+                            const c = colorMap[level] || { bg: 'bg-[#A855F7]', text: 'text-[#A855F7]' };
                             return (
                                 <div key={level}>
-                                    <div className="flex justify-between text-xs mb-1">
+                                    <div className="flex justify-between text-small mb-1">
                                         <span className={`font-medium ${c.text}`}>{level}</span>
-                                        <span className="text-slate-400">{count} ({pct}%)</span>
+                                        <span className="text-text-muted">{count} ({pct}%)</span>
                                     </div>
-                                    <div className="h-2 rounded-full bg-dark-700 overflow-hidden">
+                                    <div className="h-2 rounded-full bg-background overflow-hidden">
                                         <div
-                                            className={`h-full rounded-full ${c.bg} transition-all duration-1000`}
+                                            className={`h-full rounded-full ${c.bg} transition-all duration-500`}
                                             style={{ width: `${pct}%` }}
                                         />
                                     </div>
@@ -308,28 +364,28 @@ export default function Dashboard() {
                     <div className="mt-6 flex items-center justify-center">
                         <div className="relative w-32 h-32">
                             <svg viewBox="0 0 100 100" className="transform -rotate-90">
-                                <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
+                                <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="8" />
                                 <circle
                                     cx="50" cy="50" r="40" fill="none"
-                                    stroke={riskPercent > 70 ? '#ef4444' : riskPercent > 40 ? '#f59e0b' : '#10b981'}
+                                    stroke={riskPercent > 70 ? '#EF4444' : riskPercent > 40 ? '#F59E0B' : '#22C55E'}
                                     strokeWidth="8"
                                     strokeLinecap="round"
                                     strokeDasharray={`${riskPercent * 2.51} 251`}
-                                    className="transition-all duration-1000"
+                                    className="transition-all duration-500"
                                 />
                             </svg>
                             <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                <span className="text-2xl font-bold text-white">{riskPercent}</span>
-                                <span className="text-[10px] text-slate-400">Risk Score</span>
+                                <span className="text-2xl font-bold text-text-primary">{riskPercent}</span>
+                                <span className="text-small text-text-muted">Risk Score</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 {/* Protocol Distribution Bar */}
-                <div className="glass-card p-5">
-                    <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
-                        <Globe size={14} className="text-green-400" />
+                <div className="glass-card p-6">
+                    <h3 className="text-h2 font-semibold text-text-primary mb-4 flex items-center gap-2">
+                        <Globe size={14} className="text-success" />
                         Protocol Distribution
                     </h3>
                     <div className="h-72">
@@ -339,7 +395,7 @@ export default function Dashboard() {
                                 datasets: [{
                                     label: 'Flows',
                                     data: Object.values(statsData.protocols || {}),
-                                    backgroundColor: chartColors.map(c => c + '40'),
+                                    backgroundColor: chartColors.map(c => c + '99'),
                                     borderColor: chartColors,
                                     borderWidth: 1,
                                     borderRadius: 6,
@@ -349,12 +405,29 @@ export default function Dashboard() {
                                 responsive: true,
                                 maintainAspectRatio: false,
                                 indexAxis: 'y',
+                                interaction: { mode: 'nearest', intersect: true },
                                 scales: {
-                                    x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#64748b', font: { size: 10 } } },
-                                    y: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11, family: 'JetBrains Mono' } } },
+                                    x: { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#B0B5BA', font: { size: 13 } }, beginAtZero: true },
+                                    y: { grid: { display: false }, ticks: { color: '#EEEEEE', font: { size: 13, family: 'JetBrains Mono' } } },
                                 },
                                 plugins: {
                                     legend: { display: false },
+                                    tooltip: {
+                                        enabled: true,
+                                        backgroundColor: 'rgba(34, 40, 49, 0.95)',
+                                        titleColor: '#EEEEEE',
+                                        bodyColor: '#B0B5BA',
+                                        borderColor: 'rgba(0, 173, 181, 0.3)',
+                                        borderWidth: 1,
+                                        cornerRadius: 8,
+                                        padding: 12,
+                                        titleFont: { size: 13, weight: 'bold', family: 'Inter' },
+                                        bodyFont: { size: 12, family: 'Inter' },
+                                        callbacks: {
+                                            title: (items) => items[0] ? `Protocol: ${items[0].label}` : '',
+                                            label: (ctx) => ` Flows: ${ctx.parsed.x.toLocaleString()}`,
+                                        },
+                                    },
                                 },
                             }}
                         />
@@ -363,9 +436,10 @@ export default function Dashboard() {
             </div>
 
             {/* Top Source IPs Table */}
-            <div className="glass-card p-5">
-                <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
-                    <Globe size={14} className="text-cyan-400" />
+            <h2 className="section-header">Top Source IPs</h2>
+            <div className="glass-card p-6">
+                <h3 className="text-h2 font-semibold text-text-primary mb-4 flex items-center gap-2">
+                    <Globe size={14} className="text-primary" />
                     Top Source IPs
                 </h3>
                 <div className="overflow-x-auto">
@@ -381,18 +455,18 @@ export default function Dashboard() {
                         <tbody>
                             {(statsData.top_sources || []).map((ip, i) => (
                                 <tr key={ip.ip}>
-                                    <td className="font-mono text-cyan-400">#{i + 1}</td>
-                                    <td className="font-mono text-slate-200">{ip.ip}</td>
+                                    <td className="font-mono text-primary">#{i + 1}</td>
+                                    <td className="cell-ip">{ip.ip}</td>
                                     <td>{ip.count}</td>
                                     <td>
                                         <div className="flex items-center gap-2">
-                                            <div className="h-1.5 rounded-full bg-dark-700 w-20 overflow-hidden">
+                                            <div className="h-1.5 rounded-full bg-background w-20 overflow-hidden">
                                                 <div
-                                                    className="h-full rounded-full bg-cyan-500"
+                                                    className="h-full rounded-full bg-primary"
                                                     style={{ width: `${Math.round((ip.count / Math.max(1, statsData.total_flows || 0)) * 100)}%` }}
                                                 />
                                             </div>
-                                            <span className="text-xs text-slate-400">
+                                            <span className="text-small text-text-muted">
                                                 {Math.round((ip.count / Math.max(1, statsData.total_flows || 0)) * 100)}%
                                             </span>
                                         </div>
@@ -409,32 +483,32 @@ export default function Dashboard() {
 
 function KPICard({ title, value, icon: Icon, color, trend, trendUp, subtitle }) {
     const colorMap = {
-        cyan: { bg: 'from-cyan-500/10 to-cyan-500/5', icon: 'text-cyan-400', border: 'border-cyan-500/20' },
-        red: { bg: 'from-red-500/10 to-red-500/5', icon: 'text-red-400', border: 'border-red-500/20' },
-        purple: { bg: 'from-purple-500/10 to-purple-500/5', icon: 'text-purple-400', border: 'border-purple-500/20' },
-        green: { bg: 'from-green-500/10 to-green-500/5', icon: 'text-green-400', border: 'border-green-500/20' },
+        cyan: { icon: 'text-primary', border: 'border-primary/20' },
+        red: { icon: 'text-danger', border: 'border-danger/20' },
+        purple: { icon: 'text-[#A855F7]', border: 'border-[#A855F7]/20' },
+        green: { icon: 'text-success', border: 'border-success/20' },
     };
-    const c = colorMap[color];
+    const c = colorMap[color] || { icon: 'text-primary', border: 'border-white/10' };
 
     return (
-        <div className={`glass-card p-4 bg-gradient-to-br ${c.bg} border ${c.border} animate-slide-up`}>
+        <div className={`glass-card p-6 border ${c.border} animate-slide-up`}>
             <div className="flex items-start justify-between">
                 <div>
-                    <p className="text-xs text-slate-400 font-medium mb-1">{title}</p>
-                    <p className="text-2xl font-bold text-white">{value}</p>
+                    <p className="text-small text-text-muted font-medium mb-1">{title}</p>
+                    <p className="text-2xl font-bold text-text-primary">{value}</p>
                 </div>
-                <div className={`p-2 rounded-xl bg-dark-800/50 ${c.icon}`}>
+                <div className={`p-2 rounded-xl bg-background/80 ${c.icon}`}>
                     <Icon size={18} />
                 </div>
             </div>
             <div className="flex items-center gap-1 mt-2">
                 {trendUp ? (
-                    <ArrowUpRight size={12} className="text-green-400" />
+                    <ArrowUpRight size={12} className="text-success" />
                 ) : (
-                    <ArrowDownRight size={12} className="text-red-400" />
+                    <ArrowDownRight size={12} className="text-danger" />
                 )}
-                <span className={`text-xs font-medium ${trendUp ? 'text-green-400' : 'text-red-400'}`}>{trend}</span>
-                {subtitle && <span className="text-xs text-slate-500 ml-1">{subtitle}</span>}
+                <span className={`text-small font-medium ${trendUp ? 'text-success' : 'text-danger'}`}>{trend}</span>
+                {subtitle && <span className="text-small text-text-muted ml-1">{subtitle}</span>}
             </div>
         </div>
     );
@@ -442,15 +516,15 @@ function KPICard({ title, value, icon: Icon, color, trend, trendUp, subtitle }) 
 
 function LoadingSkeleton() {
     return (
-        <div className="space-y-6 animate-pulse">
+        <div className="space-y-8 animate-pulse">
             <div className="grid grid-cols-4 gap-4">
                 {[...Array(4)].map((_, i) => (
-                    <div key={i} className="glass-card h-28 rounded-2xl" />
+                    <div key={i} className="glass-card h-28 rounded-xl" />
                 ))}
             </div>
             <div className="grid grid-cols-3 gap-4">
-                <div className="glass-card h-72 rounded-2xl" />
-                <div className="glass-card h-72 rounded-2xl col-span-2" />
+                <div className="glass-card h-72 rounded-xl" />
+                <div className="glass-card h-72 rounded-xl col-span-2" />
             </div>
         </div>
     );
@@ -459,13 +533,13 @@ function LoadingSkeleton() {
 function ErrorState({ onRetry }) {
     return (
         <div className="flex flex-col items-center justify-center h-96">
-            <AlertTriangle size={48} className="text-red-400 mb-4" />
-            <h3 className="text-lg font-semibold text-white mb-2">Failed to Load Dashboard</h3>
-            <p className="text-sm text-slate-400 mb-4">Start the backend API to see live stats, or retry if it just came online.</p>
+            <AlertTriangle size={48} className="text-danger mb-4" />
+            <h3 className="text-h2 font-semibold text-text-primary mb-2">Failed to Load Dashboard</h3>
+            <p className="text-body text-text-muted mb-4">Start the backend API to see live stats, or retry if it just came online.</p>
             {onRetry && (
                 <button
                     onClick={onRetry}
-                    className="px-4 py-2 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-sm font-medium hover:bg-cyan-500/30 transition-colors"
+                    className="px-4 py-2.5 rounded-[10px] bg-primary text-white text-body font-medium hover:opacity-90 transition-opacity"
                 >
                     Retry
                 </button>

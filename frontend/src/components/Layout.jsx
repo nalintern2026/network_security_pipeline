@@ -59,35 +59,30 @@ export default function Layout({ children }) {
     }, []);
 
     return (
-        <div className="flex h-screen bg-dark-900 bg-grid">
+        <div className="flex h-screen bg-background bg-grid">
             {/* Sidebar */}
             <aside
-                className={`${sidebarOpen ? 'w-64' : 'w-20'
-                    } fixed h-full z-30 transition-all duration-300 ease-in-out`}
-                style={{
-                    background: 'linear-gradient(180deg, rgba(15,22,41,0.97) 0%, rgba(10,14,26,0.99) 100%)',
-                    borderRight: '1px solid rgba(0, 212, 255, 0.08)',
-                }}
+                className={`${sidebarOpen ? 'w-64' : 'w-20'} fixed h-full z-30 transition-all duration-300 ease-in-out bg-background border-r border-white/10`}
             >
                 {/* Logo */}
-                <div className="flex items-center justify-between h-16 px-4 border-b border-white/5">
+                <div className="flex items-center justify-between h-16 px-4 border-b border-white/10">
                     <div className="flex items-center gap-3">
                         <div className="relative">
-                            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-400 to-purple-500 flex items-center justify-center">
+                            <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center">
                                 <Wifi size={18} className="text-white" />
                             </div>
-                            <div className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-400 border-2 border-dark-900 animate-pulse" />
+                            <div className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-success border-2 border-background" />
                         </div>
                         {sidebarOpen && (
                             <div className="animate-fade-in">
-                                <h1 className="text-sm font-bold gradient-text leading-tight">NetGuard</h1>
-                                <p className="text-[10px] text-slate-500 font-medium">Security Intelligence</p>
+                                <h1 className="text-sm font-bold text-primary leading-tight">NetGuard</h1>
+                                <p className="text-small text-text-muted font-medium">Security Intelligence</p>
                             </div>
                         )}
                     </div>
                     <button
                         onClick={() => setSidebarOpen(!sidebarOpen)}
-                        className="p-1.5 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors"
+                        className="p-1.5 rounded-lg hover:bg-white/5 text-text-muted hover:text-text-primary transition-colors"
                     >
                         {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
                     </button>
@@ -102,15 +97,14 @@ export default function Layout({ children }) {
                             <NavLink
                                 key={item.path}
                                 to={item.path}
-                                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 group ${isActive
-                                        ? 'bg-gradient-to-r from-cyan-500/10 to-purple-500/10 text-cyan-400 border border-cyan-500/20'
-                                        : 'text-slate-400 hover:text-white hover:bg-white/5'
-                                    }`}
+                                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-body font-medium transition-colors duration-200 group ${isActive
+                                    ? 'bg-primary/15 text-primary border border-primary/25'
+                                    : 'text-text-muted hover:text-text-primary hover:bg-white/5'
+                                }`}
                             >
                                 <Icon
                                     size={18}
-                                    className={`flex-shrink-0 transition-colors ${isActive ? 'text-cyan-400' : 'text-slate-500 group-hover:text-slate-300'
-                                        }`}
+                                    className={`flex-shrink-0 transition-colors ${isActive ? 'text-primary' : 'text-text-muted group-hover:text-text-primary'}`}
                                 />
                                 {sidebarOpen && <span>{item.label}</span>}
                             </NavLink>
@@ -122,29 +116,24 @@ export default function Layout({ children }) {
                 <div className="absolute bottom-4 left-3 right-3">
                     <div className={`glass-card p-3 ${sidebarOpen ? '' : 'flex justify-center'}`}>
                         <div className="flex items-center gap-2">
-                            <div className="relative">
-                                <div
-                                    className={`w-2.5 h-2.5 rounded-full ${apiStatus === 'connected'
-                                            ? 'bg-green-400'
-                                            : apiStatus === 'disconnected'
-                                                ? 'bg-red-400'
-                                                : apiStatus === 'busy'
-                                                    ? 'bg-amber-400 animate-pulse'
-                                                    : 'bg-yellow-400 animate-pulse'
-                                        }`}
-                                />
-                                {apiStatus === 'connected' && (
-                                    <div className="absolute inset-0 w-2.5 h-2.5 rounded-full bg-green-400 animate-ping-slow" />
-                                )}
-                            </div>
+                            <div
+                                className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${apiStatus === 'connected'
+                                    ? 'bg-success'
+                                    : apiStatus === 'disconnected'
+                                        ? 'bg-danger'
+                                        : apiStatus === 'busy'
+                                            ? 'bg-warning'
+                                            : 'bg-info'
+                                }`}
+                            />
                             {sidebarOpen && (
-                                <div className="animate-fade-in flex flex-col gap-0.5">
-                                    <p className="text-xs font-medium text-slate-300">
+                                <div className="animate-fade-in flex flex-col gap-0.5 min-w-0">
+                                    <p className="text-small font-medium text-text-primary">
                                         {apiStatus === 'connected' ? 'API Connected' : apiStatus === 'disconnected' ? 'API Offline' : apiStatus === 'busy' ? 'Processing upload...' : 'Checking...'}
                                     </p>
-                                    <p className="text-[10px] text-slate-500">
+                                    <p className="text-small text-text-muted">
                                         {apiStatus === 'disconnected' ? (
-                                            <button type="button" onClick={checkApi} className="text-cyan-400 hover:underline">Retry</button>
+                                            <button type="button" onClick={checkApi} className="text-primary hover:underline">Retry</button>
                                         ) : (
                                             apiHost
                                         )}
@@ -159,51 +148,47 @@ export default function Layout({ children }) {
             {/* Main Content */}
             <main className={`flex-1 ${sidebarOpen ? 'ml-64' : 'ml-20'} transition-all duration-300 overflow-y-auto`}>
                 {/* Top Bar */}
-                <header className="sticky top-0 z-20 h-14 flex items-center justify-between px-6"
-                    style={{
-                        background: 'rgba(10, 14, 26, 0.8)',
-                        backdropFilter: 'blur(12px)',
-                        borderBottom: '1px solid rgba(255,255,255,0.04)',
-                    }}
+                <header
+                    className="sticky top-0 z-20 h-14 flex items-center justify-between px-8 bg-background/95 border-b border-white/10"
                 >
                     <div className="flex items-center gap-3">
-                        <Activity size={16} className="text-cyan-400" />
-                        <h2 className="text-sm font-semibold text-slate-200">
+                        <Activity size={16} className="text-primary" />
+                        <h2 className="text-body font-semibold text-text-primary">
                             {navItems.find(n => n.path === location.pathname)?.label || (location.pathname.startsWith('/history/') && location.pathname !== '/history' ? 'Report' : 'Dashboard')}
                         </h2>
                     </div>
                     <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2 text-xs text-slate-400">
-                            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                        <div className="flex items-center gap-2 text-small text-text-muted">
+                            <div className="w-1.5 h-1.5 rounded-full bg-primary" />
                             Live Monitoring
                         </div>
                     </div>
                 </header>
 
                 {apiStatus === 'disconnected' && (
-                    <div className="mx-6 mt-4 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 flex items-center justify-between gap-3">
-                        <p className="text-xs text-amber-200">
+                    <div className="mx-8 mt-4 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 flex items-center justify-between gap-3">
+                        <p className="text-small text-amber-200">
                             Backend is offline. UI is still available; live data updates will resume when API is back.
                         </p>
                         <button
                             type="button"
                             onClick={checkApi}
-                            className="px-3 py-1.5 rounded-lg text-xs font-medium border border-cyan-500/35 text-cyan-300 hover:bg-cyan-500/15 transition-colors"
+                            className="px-4 py-2 rounded-[10px] text-small font-medium border border-primary text-primary hover:bg-primary/10 transition-colors"
                         >
                             Retry Connection
                         </button>
                     </div>
                 )}
                 {apiStatus === 'busy' && (
-                    <div className="mx-6 mt-4 rounded-xl border border-cyan-500/25 bg-cyan-500/10 px-4 py-3 flex items-center gap-3">
-                        <p className="text-xs text-cyan-200">
+                    <div className="mx-8 mt-4 rounded-xl border border-primary/25 bg-primary/10 px-4 py-3 flex items-center gap-3">
+                        <p className="text-small text-primary">
                             Processing your upload. Large files can take several minutes; the page will update when done.
                         </p>
                     </div>
                 )}
 
                 {/* Page Content */}
-                <div className="p-6 animate-fade-in">
+                <div className="p-8 animate-fade-in">
                     {children}
                 </div>
             </main>

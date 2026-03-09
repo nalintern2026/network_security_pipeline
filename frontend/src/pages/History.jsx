@@ -15,17 +15,18 @@ export default function History() {
     const [analyses, setAnalyses] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [monitorView, setMonitorView] = useState(''); // '' = combined, 'passive', 'active'
     const navigate = useNavigate();
 
     useEffect(() => {
         loadHistory();
-    }, []);
+    }, [monitorView]);
 
     const loadHistory = async () => {
         setLoading(true);
         setError(null);
         try {
-            const { data } = await getHistory();
+            const { data } = await getHistory(100, monitorView || undefined);
             setAnalyses(data.analyses || []);
         } catch (err) {
             setError(err.response?.data?.detail || 'Failed to load history.');
@@ -54,52 +55,90 @@ export default function History() {
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-[300px]">
-                <Loader2 size={32} className="animate-spin text-cyan-400" />
+                <Loader2 size={32} className="animate-spin text-primary" />
             </div>
         );
     }
 
     return (
-        <div className="max-w-4xl mx-auto space-y-6">
-            <div className="text-center mb-8">
-                <h1 className="text-2xl font-bold gradient-text mb-2">Analysis History</h1>
-                <p className="text-sm text-slate-400">
-                    View past analyses. Click any report to open full details in a new page.
-                </p>
+        <div className="max-w-4xl mx-auto space-y-8">
+            <div className="flex items-center justify-between gap-4 flex-wrap mb-8">
+                <div className="text-center flex-1 min-w-0">
+                    <h1 className="text-h1 font-bold text-primary mb-2">Analysis History</h1>
+                    <p className="text-body text-text-muted">
+                        View past analyses. Click any report to open full details.
+                        {monitorView === 'active' && ' Showing: Active monitoring sessions.'}
+                        {monitorView === 'passive' && ' Showing: Passive (upload) analyses.'}
+                        {!monitorView && ' Showing: All analyses (combined).'}
+                    </p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-small font-medium text-text-muted uppercase tracking-wider">View</span>
+                    <div className="flex rounded-xl bg-surface border border-white/10 p-0.5">
+                        <button
+                            type="button"
+                            onClick={() => setMonitorView('')}
+                            className={`px-4 py-2 rounded-lg text-body font-medium transition-colors ${!monitorView
+                                ? 'bg-primary/15 text-primary border border-primary/30'
+                                : 'text-text-muted hover:text-text-primary'}`}
+                        >
+                            Combined
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setMonitorView('active')}
+                            className={`px-4 py-2 rounded-lg text-body font-medium transition-colors ${monitorView === 'active'
+                                ? 'bg-primary/15 text-primary border border-primary/30'
+                                : 'text-text-muted hover:text-text-primary'}`}
+                        >
+                            Active
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setMonitorView('passive')}
+                            className={`px-4 py-2 rounded-lg text-body font-medium transition-colors ${monitorView === 'passive'
+                                ? 'bg-primary/15 text-primary border border-primary/30'
+                                : 'text-text-muted hover:text-text-primary'}`}
+                        >
+                            Passive
+                        </button>
+                    </div>
+                </div>
             </div>
 
             {error && (
-                <div className="glass-card p-4 border-red-500/20">
+                <div className="glass-card p-4 border-danger/30 bg-danger/10">
                     <div className="flex items-center gap-3">
-                        <AlertTriangle size={20} className="text-red-400" />
-                        <p className="text-sm text-red-300">{error}</p>
+                        <AlertTriangle size={20} className="text-danger" />
+                        <p className="text-body text-red-300">{error}</p>
                     </div>
                 </div>
             )}
 
             {analyses.length === 0 && !loading && (
                 <div className="glass-card p-12 text-center">
-                    <HistoryIcon size={48} className="mx-auto text-slate-500 mb-4" />
-                    <p className="text-slate-400">No analysis history yet.</p>
-                    <p className="text-sm text-slate-500 mt-2">Upload and analyze files on the Upload page to see them here.</p>
+                    <HistoryIcon size={48} className="mx-auto text-text-muted mb-4" />
+                    <p className="text-text-primary">No analysis history yet.</p>
+                    <p className="text-body text-text-muted mt-2">Upload and analyze files on the Upload page to see them here.</p>
                 </div>
             )}
 
+            <h2 className="section-header">Past Analyses</h2>
             <div className="space-y-3">
                 {analyses.map((a) => (
                     <button
                         key={a.analysis_id}
                         type="button"
                         onClick={() => navigate(`/history/${a.analysis_id}`)}
-                        className="w-full glass-card p-4 flex items-center justify-between gap-4 text-left hover:bg-white/5 hover:border-cyan-400/30 transition-all group"
+                        className="w-full glass-card p-6 flex items-center justify-between gap-4 text-left hover:border-primary/35 transition-colors group"
                     >
                         <div className="flex items-center gap-4 min-w-0 flex-1">
-                            <div className="p-2 rounded-xl bg-cyan-500/10 flex-shrink-0">
-                                <FileText size={20} className="text-cyan-400" />
+                            <div className="p-2 rounded-xl bg-primary/10 flex-shrink-0">
+                                <FileText size={20} className="text-primary" />
                             </div>
                             <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium text-white truncate group-hover:text-cyan-300">{a.filename || 'Unknown'}</p>
-                                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-slate-400">
+                                <p className="text-body font-medium text-text-primary truncate group-hover:text-primary">{a.filename || 'Unknown'}</p>
+                                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-small text-text-muted">
                                     <span className="flex items-center gap-1">
                                         <Clock size={12} />
                                         {formatDate(a.uploaded_at)}
@@ -108,26 +147,26 @@ export default function History() {
                                         <HardDrive size={12} />
                                         {formatSize(a.file_size)}
                                     </span>
-                                    <span className="px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300">
-                                        {a.monitor_type || 'Static Monitoring'}
+                                    <span className={`px-2 py-0.5 rounded text-small font-medium ${(a.monitor_type || '').toLowerCase() === 'active' ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-surface text-text-muted border border-white/10'}`}>
+                                        {(a.monitor_type || 'Static Monitoring').toLowerCase() === 'active' ? 'Active' : 'Passive'}
                                     </span>
                                 </div>
                             </div>
                         </div>
                         <div className="flex items-center gap-4 flex-shrink-0">
                             <div className="text-right">
-                                <p className="text-[10px] text-slate-500 uppercase">Flows</p>
-                                <p className="text-sm font-semibold text-white">{a.total_flows ?? 0}</p>
+                                <p className="text-small text-text-muted uppercase">Flows</p>
+                                <p className="text-body font-semibold text-text-primary">{a.total_flows ?? 0}</p>
                             </div>
                             <div className="text-right">
-                                <p className="text-[10px] text-slate-500 uppercase">Anomalies</p>
-                                <p className="text-sm font-semibold text-amber-400">{a.anomaly_count ?? 0}</p>
+                                <p className="text-small text-text-muted uppercase">Anomalies</p>
+                                <p className="text-body font-semibold text-warning">{a.anomaly_count ?? 0}</p>
                             </div>
                             <div className="text-right">
-                                <p className="text-[10px] text-slate-500 uppercase">Avg Risk</p>
-                                <p className="text-sm font-semibold text-white">{Math.round((a.avg_risk_score ?? 0) * 100)}%</p>
+                                <p className="text-small text-text-muted uppercase">Avg Risk</p>
+                                <p className="text-body font-semibold text-text-primary">{Math.round((a.avg_risk_score ?? 0) * 100)}%</p>
                             </div>
-                            <ChevronRight size={20} className="text-slate-400 group-hover:text-cyan-400" />
+                            <ChevronRight size={20} className="text-text-muted group-hover:text-primary" />
                         </div>
                     </button>
                 ))}
