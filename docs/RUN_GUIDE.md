@@ -22,7 +22,7 @@ The `data/` and `models/` folders are ignored by git to keep the repo small. You
 - `nal/training_pipeline/models/`
 
 ## 4. Run with Docker
-Start the entire system (Frontend + Backend):
+Start the entire system (Frontend + Backend + n8n):
 
 ```bash
 cd nal
@@ -30,6 +30,9 @@ docker compose up --build
 ```
 - Access Dashboard: [http://localhost:5173](http://localhost:5173)
 - Access API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+- Access n8n Workflows: [http://localhost:5678](http://localhost:5678)
+
+> For n8n setup details, see [N8N_SETUP_GUIDE.md](./N8N_SETUP_GUIDE.md)
 
 ## 5. Stop the System
 Press `Ctrl+C` in the terminal, or run:

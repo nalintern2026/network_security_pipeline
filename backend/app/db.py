@@ -12,8 +12,13 @@ import threading
 # Thread-safe database operations
 db_lock = threading.Lock()
 
-# Database path
-DB_PATH = Path(__file__).resolve().parent.parent.parent.parent / "flows.db"
+# Database path — go up to project root (parent of nal/)
+# Works both locally (4 parents up from nal/backend/app/db.py) and in Docker (where /app = nal/)
+_candidates = [
+    Path(__file__).resolve().parent.parent.parent.parent / "flows.db",  # local: Network/flows.db
+    Path(__file__).resolve().parent.parent.parent / "flows.db",          # docker: /app/flows.db
+]
+DB_PATH = next((p for p in _candidates if p.parent.is_dir()), _candidates[0])
 
 # Protocol filter: DB may store number ("6") or name ("TCP") from different sources. Match both.
 PROTOCOL_FILTER_VALUES = {
@@ -78,12 +83,6 @@ def init_db():
         if "monitor_type" not in existing_columns:
             cursor.execute("ALTER TABLE flows ADD COLUMN monitor_type TEXT DEFAULT 'passive'")
 
-        # analysis_history: ensure monitor_type exists (already in schema; add if missing for old DBs)
-        cursor.execute("PRAGMA table_info(analysis_history)")
-        ah_columns = {row[1] for row in cursor.fetchall()}
-        if "monitor_type" not in ah_columns:
-            cursor.execute("ALTER TABLE analysis_history ADD COLUMN monitor_type TEXT DEFAULT 'passive'")
-
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_timestamp ON flows(timestamp DESC);
         """)
@@ -117,6 +116,12 @@ def init_db():
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_analysis_history_uploaded_at ON analysis_history(uploaded_at DESC);
         """)
+
+        # analysis_history: ensure monitor_type exists for old DBs created before this column
+        cursor.execute("PRAGMA table_info(analysis_history)")
+        ah_columns = {row[1] for row in cursor.fetchall()}
+        if "monitor_type" not in ah_columns:
+            cursor.execute("ALTER TABLE analysis_history ADD COLUMN monitor_type TEXT DEFAULT 'passive'")
         
         conn.commit()
         conn.close()
