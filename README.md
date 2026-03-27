@@ -1,147 +1,59 @@
-# 📡 Network Traffic Classification & Anomaly Detection
+# NetGuard Network Security Intelligence
 
-> Adaptive Flow-Level Machine Learning Framework for Supervised Traffic Classification, Unsupervised Anomaly Detection, and Hybrid Decision Intelligence aligned with ITC/NAL operational environments.
+NetGuard is a full-stack network traffic security analysis platform in this repository under `nal/`. It combines FastAPI services, machine-learning inference, realtime packet monitoring, a React dashboard, and n8n automation workflows to classify traffic, detect anomalies, score risk, and generate operational alerts/reports.
 
----
+## Key Features
 
-## 📌 Project Overview
+- Hybrid flow analysis using Random Forest + Isolation Forest.
+- Passive upload pipeline for `.pcap`, `.pcapng`, and `.csv` files.
+- Active live-monitoring pipeline using Scapy capture windows.
+- Risk scoring, threat labeling, CVE-context mapping, and analysis history.
+- SBOM dependency scanning with OSV vulnerability enrichment.
+- n8n workflows for monitoring, alerting, training checks, and daily reporting.
 
-This project implements an end-to-end **network traffic intelligence system** capable of:
-
-- **Flow-level traffic classification** using Random Forest.
-- **Zero-day anomaly detection** using Isolation Forest.
-- **Hybrid decision-based risk scoring** combining both models.
-- **Real-time Visualization** via a React Dashboard and FastAPI Backend.
-
-The framework is modular, reproducible, and designed for operational deployment.
-
----
-
-# 🏗 System Architecture
-
-## 🔄 High-Level Architecture
-
-```mermaid
-flowchart LR
-    A["PCAP / CSV Traffic"] --> B["FastAPI Backend"]
-    B --> C["Decision Engine"]
-    C --> D["Feature Engineering - Core"]
-    D --> E["Supervised Model - Random Forest"]
-    D --> F["Unsupervised Model - Isolation Forest"]
-    E --> G["Hybrid Risk Scoring"]
-    F --> G
-    G --> H["React Dashboard"]
-
-```
-
----
-
-# 🧠 ML Strategy
-
-## 1️⃣ Supervised Learning (Implemented)
-Used for known attack detection and traffic classification.
-
-**Model:** Random Forest Classifier (Robust against noise, high accuracy).
-
-## 2️⃣ Unsupervised Learning (Implemented)
-Used for anomaly detection and unknown attack discovery.
-
-**Model:** Isolation Forest (Efficient outlier detection).
-
-## 3️⃣ Hybrid Decision Engine (Implemented)
-
-Combines:
-- Supervised probability score
-- Unsupervised anomaly score
-- Configurable risk thresholds (Critical, High, Medium, Low)
-
----
-
-# 📂 Repository Structure
-
-```
-nal/
-│
-├── backend/                # FastAPI Application
-│   ├── app/
-│   │   ├── services/       # Decision Engine & Logic
-│   │   └── main.py         # API Endpoints
-│
-├── frontend/               # React + Vite Dashboard
-│   ├── src/
-│   │   ├── components/     # Charts & Stats
-│   │   └── pages/          # Dashboard & Upload
-│
-├── core/                   # Shared Modules
-│   └── feature_engineering.py  # Preprocessing & Scaling
-│
-├── training_pipeline/      # ML Training Logic
-│   ├── data/               # Raw & Processed Data
-│   ├── models/             # Saved Models (.pkl)
-│   └── train.py            # Main Training Script
-```
-
----
-
-# ⚙️ Installation & Setup
+## Minimal Setup
 
 ```bash
-# Clone Repository
-git clone <repo_url>
-cd Network/nal
-
-# Backend Setup
+cd /home/ictd/Desktop/Network/nal
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Frontend Setup
 cd frontend
 npm install
 ```
 
----
+## Minimal Run
 
-# 🚀 Running the System
-
-## 1. Train the Models
-Trains the ML models on data located in `training_pipeline/data/processed/cic_ids/flows`.
+Backend:
 
 ```bash
-# From 'nal' directory
-.venv/bin/python3 training_pipeline/train.py
-```
-
-## 2. Start the Backend
-Runs the FastAPI server (API & Decision Engine).
-
-```bash
-# From 'nal' directory
+cd /home/ictd/Desktop/Network/nal
 source .venv/bin/activate
-uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-## 3. Start the Frontend
-Runs the React Dashboard.
+Frontend:
 
 ```bash
-# From 'nal/frontend' directory
-npm run dev
+cd /home/ictd/Desktop/Network/nal/frontend
+npm run dev -- --host
 ```
 
----
+## Documentation
 
-# 📊 Features
+👉 Full documentation available in `/docs`
 
-- **Real Data Integration**: Dashboard loads actual training data samples on startup.
-- **File Upload**: Support for `.pcap` and `.csv` uploads for real-time analysis.
-- **Hybrid Security Scoring**: automatic risk assessment based on ML confidence and anomaly scores.
-- **Interactive Dashboard**: Visualizes Traffic Flows, Attack Distribution, and Anomalies.
-
----
-
-# 🔮 Future Enhancements
-
-- Database Integration (PostgreSQL) for persistent history.
-- Real-time packet capture streaming.
-- Model Drift Monitoring.
+- `docs/01_overview.md`
+- `docs/02_architecture.md`
+- `docs/03_folder_structure.md`
+- `docs/04_modules.md`
+- `docs/05_dataflow.md`
+- `docs/06_setup.md`
+- `docs/07_execution.md`
+- `docs/08_testing_validation.md`
+- `docs/09_ml_model.md`
+- `docs/10_alerting.md`
+- `docs/11_api.md`
+- `docs/12_troubleshooting.md`
+- `docs/13_dev_notes.md`
