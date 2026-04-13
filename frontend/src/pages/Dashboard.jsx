@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getDashboardStats } from '../services/api';
 import {
     Activity,
@@ -18,62 +18,110 @@ ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarEle
 /* Chart palette: distinct from background #222831 / #393E46 - no grays */
 const chartColors = ['#00ADB5', '#3B82F6', '#22C55E', '#F59E0B', '#EF4444', '#A855F7', '#EC4899'];
 
+/** Label for passive timeline: full upload timestamp (local). */
+function formatUploadTimestamp(hour) {
+    const raw = String(hour || '').trim();
+    if (!raw) return '';
+    let s = raw;
+    if (s.includes('T') && !s.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(s)) {
+        s = s.endsWith('Z') ? s : `${s}Z`;
+    }
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return raw.length > 22 ? `${raw.slice(0, 10)} ${raw.slice(11, 19)}` : raw;
+    return d.toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatActiveMinuteLabel(hour) {
+    const raw = String(hour || '').trim();
+    if (!raw) return '';
+    let dt = new Date(raw.includes('T') ? `${raw.slice(0, 16)}:00Z` : raw);
+    if (Number.isNaN(dt.getTime())) dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) return raw;
+    return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function timelineLabels(timeline, mode) {
+    const arr = timeline || [];
+    if (mode === 'passive') return arr.map((t) => formatUploadTimestamp(t.hour));
+    return arr.map((t) => formatActiveMinuteLabel(t.hour));
+}
+
+const EMPTY_STATS = {
+    total_flows: 0,
+    total_anomalies: 0,
+    anomaly_rate: 0,
+    avg_risk_score: 0,
+    attack_distribution: {},
+    risk_distribution: { Critical: 0, High: 0, Medium: 0, Low: 0 },
+    timeline: [],
+    protocols: {},
+};
+
 export default function Dashboard() {
-    const [stats, setStats] = useState(null);
+    /** Separate caches so passive/active never overwrite each other (fixes flicker on toggle). */
+    const [statsByMode, setStatsByMode] = useState({ passive: null, active: null });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [refreshing, setRefreshing] = useState(false);
-    const [lastFetch, setLastFetch] = useState(null);
+    const [lastFetchByMode, setLastFetchByMode] = useState({ passive: null, active: null });
     const [monitorView, setMonitorView] = useState('passive'); // 'passive' | 'active'
 
-    const fetchStats = useCallback(async () => {
+    const genPassive = useRef(0);
+    const genActive = useRef(0);
+
+    const fetchStatsFor = useCallback(async (mode) => {
+        const genRef = mode === 'passive' ? genPassive : genActive;
+        const myGen = ++genRef.current;
         try {
+            const response = await getDashboardStats(mode);
+            if (myGen !== genRef.current) return;
+            setStatsByMode((prev) => ({ ...prev, [mode]: response.data }));
+            const t = new Date().toLocaleTimeString();
+            setLastFetchByMode((prev) => ({ ...prev, [mode]: t }));
             setError(null);
-            const response = await getDashboardStats(monitorView || undefined);
-            const data = response.data;
-            setStats(data);
-            setLastFetch(new Date().toLocaleTimeString());
-            setLoading(false);
         } catch (err) {
+            if (myGen !== genRef.current) return;
             setError(err.response?.data?.detail || err.message || 'Failed to fetch data');
-            setStats(null);
-            setLoading(false);
         }
-    }, [monitorView]);
+    }, []);
 
-    // Fetch on mount and when toggle changes
+    // Initial load + periodic refresh: update BOTH caches (toggle only switches which cache is shown)
     useEffect(() => {
-        fetchStats();
-    }, [fetchStats]);
+        let cancelled = false;
+        (async () => {
+            await Promise.all([fetchStatsFor('passive'), fetchStatsFor('active')]);
+            if (!cancelled) setLoading(false);
+        })();
+        return () => { cancelled = true; };
+    }, [fetchStatsFor]);
 
-    // Auto-refresh every 5 seconds (live data for active view)
     useEffect(() => {
         const interval = setInterval(() => {
-            fetchStats();
+            fetchStatsFor('passive');
+            fetchStatsFor('active');
         }, 5000);
         return () => clearInterval(interval);
-    }, [fetchStats]);
+    }, [fetchStatsFor]);
+
+    // If user switches tab before that mode's first successful fetch, load it now (fixes blank passive).
+    useEffect(() => {
+        if (statsByMode[monitorView] == null) {
+            fetchStatsFor(monitorView);
+        }
+    }, [monitorView, statsByMode, fetchStatsFor]);
 
     const handleManualRefresh = async () => {
         setRefreshing(true);
-        await fetchStats();
+        await Promise.all([fetchStatsFor('passive'), fetchStatsFor('active')]);
         setRefreshing(false);
     };
 
-    if (loading && !stats) {
+    if (loading && !statsByMode.passive && !statsByMode.active) {
         return <LoadingSkeleton />;
     }
 
-    const statsData = stats || {
-        total_flows: 0,
-        total_anomalies: 0,
-        anomaly_rate: 0,
-        avg_risk_score: 0,
-        attack_distribution: {},
-        risk_distribution: { Critical: 0, High: 0, Medium: 0, Low: 0 },
-        timeline: [],
-        protocols: {},
-    };
+    const statsData = statsByMode[monitorView] || EMPTY_STATS;
+    const lastFetch = lastFetchByMode[monitorView];
 
     const riskPercent = Math.round((statsData.avg_risk_score || 0) * 100);
 
@@ -112,7 +160,7 @@ export default function Dashboard() {
                         {monitorView === 'active' && (
                             <span className="text-primary font-medium">Live • </span>
                         )}
-                        Last updated: {lastFetch || 'Loading...'} | Total Flows: {statsData.total_flows}
+                        Last updated: {lastFetch ?? '—'} | Total Flows: {statsData.total_flows}
                     </p>
                     <button
                         onClick={handleManualRefresh}
@@ -240,92 +288,165 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-                {/* Timeline Line Chart */}
+                {/* Passive + Active: line charts (upload time vs last 1h minute buckets). */}
                 <div className="glass-card p-6 lg:col-span-2">
                     <h3 className="text-h2 font-semibold text-text-primary mb-4 flex items-center gap-2">
                         <TrendingUp size={14} className="text-primary" />
-                        Traffic Timeline (Last 1h)
+                        Traffic Timeline
                     </h3>
-                    <div className="h-56">
-                        <Line
-                            data={{
-                                labels: (statsData.timeline || []).map(t => {
-                                    const raw = String(t.hour || '').trim();
-                                    if (!raw) return '';
-                                    let dt = new Date(raw.includes('T') ? raw + ':00Z' : raw);
-                                    if (Number.isNaN(dt.getTime())) dt = new Date(raw);
-                                    if (Number.isNaN(dt.getTime())) return raw;
-                                    return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                }),
-                                datasets: [
-                                    {
-                                        label: 'Total Flows',
-                                        data: (statsData.timeline || []).map(t => t.total),
-                                        borderColor: '#00ADB5',
-                                        backgroundColor: 'rgba(0, 173, 181, 0.12)',
-                                        fill: true,
-                                        tension: 0.4,
-                                        pointRadius: 3,
-                                        pointHoverRadius: 7,
-                                        pointBackgroundColor: '#00ADB5',
-                                        pointBorderColor: '#222831',
-                                        pointBorderWidth: 2,
-                                        pointHoverBackgroundColor: '#00ADB5',
-                                        pointHoverBorderColor: '#fff',
-                                        pointHoverBorderWidth: 2,
-                                        borderWidth: 2,
-                                    },
-                                    {
-                                        label: 'Anomalies',
-                                        data: (statsData.timeline || []).map(t => t.anomalies),
-                                        borderColor: '#EF4444',
-                                        backgroundColor: 'rgba(239, 68, 68, 0.12)',
-                                        fill: true,
-                                        tension: 0.4,
-                                        pointRadius: 3,
-                                        pointHoverRadius: 7,
-                                        pointBackgroundColor: '#EF4444',
-                                        pointBorderColor: '#222831',
-                                        pointBorderWidth: 2,
-                                        pointHoverBackgroundColor: '#EF4444',
-                                        pointHoverBorderColor: '#fff',
-                                        pointHoverBorderWidth: 2,
-                                        borderWidth: 2,
-                                    },
-                                ],
-                            }}
-                            options={{
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                interaction: { mode: 'index', intersect: false },
-                                hover: { mode: 'index', intersect: false },
-                                scales: {
-                                    x: { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#B0B5BA', font: { size: 13 } } },
-                                    y: { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#B0B5BA', font: { size: 13 } }, beginAtZero: true },
-                                },
-                                plugins: {
-                                    legend: { labels: { color: '#B0B5BA', font: { size: 13 }, usePointStyle: true, pointStyleWidth: 8 } },
-                                    tooltip: {
-                                        enabled: true,
-                                        backgroundColor: 'rgba(34, 40, 49, 0.95)',
-                                        titleColor: '#EEEEEE',
-                                        bodyColor: '#B0B5BA',
-                                        borderColor: 'rgba(0, 173, 181, 0.3)',
-                                        borderWidth: 1,
-                                        cornerRadius: 8,
-                                        padding: 12,
-                                        titleFont: { size: 13, weight: 'bold', family: 'Inter' },
-                                        bodyFont: { size: 12, family: 'Inter' },
-                                        displayColors: true,
-                                        boxPadding: 4,
-                                        callbacks: {
-                                            title: (items) => items[0] ? `Time: ${items[0].label} (UTC)` : '',
-                                            label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()} flows`,
+                    <div className="h-64 min-h-[240px] relative">
+                        {statsByMode[monitorView] == null ? (
+                            <div className="h-full flex items-center justify-center text-body text-text-muted">
+                                Loading chart…
+                            </div>
+                        ) : (statsData.timeline || []).length === 0 ? (
+                            <div className="h-full flex items-center justify-center text-body text-text-muted px-4 text-center">
+                                {monitorView === 'passive'
+                                    ? 'No upload history yet. Run an analysis from the Upload page — each upload appears here by timestamp.'
+                                    : 'No flow data in the last hour for active monitoring. Generate traffic or widen capture.'}
+                            </div>
+                        ) : monitorView === 'passive' ? (
+                            <Line
+                                key={`tl-passive-${(statsData.timeline || []).length}`}
+                                data={{
+                                    labels: timelineLabels(statsData.timeline, 'passive'),
+                                    datasets: [
+                                        {
+                                            label: 'Total Flows',
+                                            data: (statsData.timeline || []).map((t) => Number(t.total) || 0),
+                                            borderColor: '#00ADB5',
+                                            backgroundColor: 'rgba(0, 173, 181, 0.12)',
+                                            fill: true,
+                                            tension: 0.4,
+                                            pointRadius: 3,
+                                            pointHoverRadius: 7,
+                                            pointBackgroundColor: '#00ADB5',
+                                            pointBorderColor: '#222831',
+                                            pointBorderWidth: 2,
+                                            borderWidth: 2,
+                                        },
+                                        {
+                                            label: 'Anomalies',
+                                            data: (statsData.timeline || []).map((t) => Number(t.anomalies) || 0),
+                                            borderColor: '#EF4444',
+                                            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                                            fill: true,
+                                            tension: 0.4,
+                                            pointRadius: 3,
+                                            pointHoverRadius: 7,
+                                            pointBackgroundColor: '#EF4444',
+                                            pointBorderColor: '#222831',
+                                            pointBorderWidth: 2,
+                                            borderWidth: 2,
+                                        },
+                                    ],
+                                }}
+                                options={{
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    animation: { duration: 0 },
+                                    interaction: { mode: 'index', intersect: false },
+                                    hover: { mode: 'index', intersect: false },
+                                    scales: {
+                                        x: {
+                                            grid: { color: 'rgba(255,255,255,0.06)' },
+                                            ticks: {
+                                                color: '#B0B5BA',
+                                                font: { size: 10 },
+                                                maxRotation: 55,
+                                                minRotation: 35,
+                                                autoSkip: true,
+                                                maxTicksLimit: 16,
+                                            },
+                                        },
+                                        y: {
+                                            beginAtZero: true,
+                                            grid: { color: 'rgba(255,255,255,0.06)' },
+                                            ticks: { color: '#B0B5BA', font: { size: 13 } },
                                         },
                                     },
-                                },
-                            }}
-                        />
+                                    plugins: {
+                                        legend: { labels: { color: '#B0B5BA', font: { size: 13 }, usePointStyle: true, pointStyleWidth: 8 } },
+                                        tooltip: {
+                                            callbacks: {
+                                                title: (items) => (items[0] ? `Uploaded: ${items[0].label}` : ''),
+                                                label: (ctx) => {
+                                                    const v = ctx.parsed?.y ?? ctx.raw ?? 0;
+                                                    return ` ${ctx.dataset.label}: ${Number(v).toLocaleString()} flows`;
+                                                },
+                                            },
+                                        },
+                                    },
+                                }}
+                            />
+                        ) : (
+                            <Line
+                                key={`tl-active-${(statsData.timeline || []).length}`}
+                                data={{
+                                    labels: (statsData.timeline || []).map((t) => {
+                                        const raw = String(t.hour || '').trim();
+                                        if (!raw) return '';
+                                        let dt = new Date(raw.includes('T') ? raw + ':00Z' : raw);
+                                        if (Number.isNaN(dt.getTime())) dt = new Date(raw);
+                                        if (Number.isNaN(dt.getTime())) return raw;
+                                        return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                    }),
+                                    datasets: [
+                                        {
+                                            label: 'Total Flows',
+                                            data: (statsData.timeline || []).map((t) => Number(t.total) || 0),
+                                            borderColor: '#00ADB5',
+                                            backgroundColor: 'rgba(0, 173, 181, 0.12)',
+                                            fill: true,
+                                            tension: 0.4,
+                                            pointRadius: 3,
+                                            pointHoverRadius: 7,
+                                            pointBackgroundColor: '#00ADB5',
+                                            pointBorderColor: '#222831',
+                                            pointBorderWidth: 2,
+                                            borderWidth: 2,
+                                        },
+                                        {
+                                            label: 'Anomalies',
+                                            data: (statsData.timeline || []).map((t) => Number(t.anomalies) || 0),
+                                            borderColor: '#EF4444',
+                                            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                                            fill: true,
+                                            tension: 0.4,
+                                            pointRadius: 3,
+                                            pointHoverRadius: 7,
+                                            pointBackgroundColor: '#EF4444',
+                                            pointBorderColor: '#222831',
+                                            pointBorderWidth: 2,
+                                            borderWidth: 2,
+                                        },
+                                    ],
+                                }}
+                                options={{
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    animation: { duration: 0 },
+                                    interaction: { mode: 'index', intersect: false },
+                                    hover: { mode: 'index', intersect: false },
+                                    scales: {
+                                        x: { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#B0B5BA', font: { size: 13 } } },
+                                        y: { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#B0B5BA', font: { size: 13 } }, beginAtZero: true },
+                                    },
+                                    plugins: {
+                                        legend: { labels: { color: '#B0B5BA', font: { size: 13 }, usePointStyle: true, pointStyleWidth: 8 } },
+                                        tooltip: {
+                                            callbacks: {
+                                                title: (items) => (items[0] ? `Time: ${items[0].label}` : ''),
+                                                label: (ctx) => {
+                                                    const v = ctx.parsed?.y ?? ctx.raw ?? 0;
+                                                    return ` ${ctx.dataset.label}: ${Number(v).toLocaleString()} flows`;
+                                                },
+                                            },
+                                        },
+                                    },
+                                }}
+                            />
+                        )}
                     </div>
                 </div>
             </div>

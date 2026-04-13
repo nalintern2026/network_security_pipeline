@@ -14,6 +14,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from typing import Callable, Optional
+import ipaddress
 
 # Add project root to path for imports
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -26,6 +27,7 @@ from app.classification_config import (
     get_threat_info,
     build_classification_reason,
 )
+from app.services.osint import run_osint_checks, compute_final_score, osint_verdict_from_final_score
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -48,6 +50,50 @@ TEMP_DIR.mkdir(exist_ok=True)
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 _VENV_BIN = _BACKEND_ROOT / ".venv" / "bin"
 
+
+def _pick_executable(candidates: list[Path | str]) -> str:
+    """
+    Pick the first runnable executable from candidates.
+    - Path candidates must exist, be a file, and be executable.
+    - String candidates are returned as-is (used for PATH lookups).
+    """
+    for c in candidates:
+        if isinstance(c, Path):
+            try:
+                if c.exists() and c.is_file() and os.access(str(c), os.X_OK):
+                    return str(c)
+            except Exception:
+                # If filesystem checks fail, keep searching other candidates.
+                continue
+        elif isinstance(c, str) and c:
+            return c
+    raise FileNotFoundError("No executable candidates provided.")
+
+
+def _find_cicflowmeter() -> str:
+    """
+    Locate cicflowmeter across environments:
+    - Docker image installs console scripts to /usr/local/bin (found via PATH)
+    - Local dev may install into backend .venv/bin
+    - When running under sudo, PATH can be minimal; prefer explicit paths first
+    """
+    env_override = os.environ.get("CICFLOWMETER_BIN")
+    if env_override:
+        return _pick_executable([Path(env_override), env_override])
+
+    exe_dir = Path(sys.executable).resolve().parent
+    which_val = shutil.which("cicflowmeter")
+
+    candidates: list[Path | str] = [
+        _VENV_BIN / "cicflowmeter",
+        _VENV_BIN / "cicflowmeter.exe",
+        exe_dir / "cicflowmeter",
+    ]
+    if which_val:
+        candidates.append(which_val)
+    candidates.append("cicflowmeter")
+    return _pick_executable(candidates)
+
 class DecisionEngine:
     def __init__(self):
         self.rf_model = None
@@ -67,7 +113,8 @@ class DecisionEngine:
             with open(SUPERVISED_MODEL_PATH, 'rb') as f:
                 self.rf_model = pickle.load(f)
         except FileNotFoundError:
-            logger.warning(f"Supervised model not found at {SUPERVISED_MODEL_PATH}. Skipping.")
+            # Common in fresh installs / anomaly-only deployments; don't spam warnings.
+            logger.info(f"Supervised model not found at {SUPERVISED_MODEL_PATH}. Skipping.")
         except Exception as e:
             logger.error(f"Error loading supervised model: {e}")
 
@@ -86,13 +133,18 @@ class DecisionEngine:
                 with open(SCALER_PATH, 'rb') as f:
                     self.scaler = pickle.load(f)
             else:
-                logger.warning("Scaler artifact not found.")
+                # Scaling is recommended but may be missing in minimal deployments.
+                logger.info("Scaler artifact not found.")
 
             if LABEL_ENCODER_PATH.exists():
                 with open(LABEL_ENCODER_PATH, 'rb') as f:
                     self.label_encoder = pickle.load(f)
                 if self.label_encoder is None:
-                    logger.warning("Label encoder artifact is None. Supervised predictions are disabled.")
+                    logger.info("Label encoder artifact is None. Supervised predictions are disabled.")
+                    self._supervised_fallback_logged = True
+            else:
+                logger.info("Label encoder artifact not found. Supervised predictions are disabled.")
+                self._supervised_fallback_logged = True
             
             if FEATURE_NAMES_PATH.exists():
                 with open(FEATURE_NAMES_PATH, 'rb') as f:
@@ -103,7 +155,8 @@ class DecisionEngine:
             logger.error(f"Error loading artifacts: {e}")
 
         if not self.rf_model or not self.label_encoder:
-            logger.warning(
+            # This is an expected state for anomaly-only mode; keep it informational.
+            logger.info(
                 "Supervised pipeline inactive (rf_model or label_encoder missing). "
                 "System will run unsupervised anomaly detection only."
             )
@@ -174,6 +227,17 @@ class DecisionEngine:
                 items.sort(key=lambda x: x.get(key, 0) or 0, reverse=True)
                 if len(items) > limit:
                     del items[limit:]
+
+            def _pick_osint_ip(src_ip_val: str, dst_ip_val: str) -> Optional[str]:
+                """Prefer a public IP for OSINT (skip private/reserved)."""
+                for candidate in (src_ip_val, dst_ip_val):
+                    try:
+                        ip_obj = ipaddress.ip_address(str(candidate).strip())
+                        if ip_obj.is_global:
+                            return str(ip_obj)
+                    except Exception:
+                        continue
+                return None
 
             has_rows = False
             for chunk in pd.read_csv(csv_path, chunksize=chunk_size, low_memory=False):
@@ -346,6 +410,49 @@ class DecisionEngine:
                         "risk_level": risk_level,
                         "is_anomaly": is_anom,
                     }
+
+                    # ── OSINT validation (only when anomaly detector flags a flow) ──
+                    # ml_confidence is interpreted as 0..100 for the final score.
+                    if is_anom:
+                        ip_to_check = _pick_osint_ip(row["src_ip"], row["dst_ip"])
+                        if ip_to_check:
+                            osint = run_osint_checks(ip_to_check)
+                            ml_confidence = float(np.clip(anom_score, 0, 1)) * 100.0
+                            row["osint_ip"] = osint.ip
+                            row["abuse_ok"] = bool(osint.abuse_ok)
+                            row["abuse_score"] = osint.abuse_score
+                            row["vt_ok"] = bool(osint.vt_ok)
+                            row["vt_score"] = osint.vt_score
+                            row["osint_error"] = osint.error
+
+                            # Correctness: if both OSINT providers failed/unavailable, don't pretend scores are 0.
+                            if not osint.abuse_ok and not osint.vt_ok:
+                                row["final_score"] = None
+                                row["final_verdict"] = "OSINT Unavailable"
+                            else:
+                                final_score = compute_final_score(ml_confidence, osint.abuse_score, osint.vt_score)
+                                row["final_score"] = final_score
+                                row["final_verdict"] = osint_verdict_from_final_score(final_score)
+                            if row.get("final_verdict"):
+                                logger.info(
+                                    "OSINT verdict: ip=%s ml_anom=%.3f abuse=%s vt=%s final=%.1f verdict=%s",
+                                    row["osint_ip"],
+                                    anom_score,
+                                    str(row.get("abuse_score")),
+                                    str(row.get("vt_score")),
+                                    float(row["final_score"] or 0.0),
+                                    row.get("final_verdict"),
+                                )
+                        else:
+                            # No public IP to check (private/reserved).
+                            row["osint_ip"] = None
+                            row["abuse_ok"] = False
+                            row["abuse_score"] = None
+                            row["vt_ok"] = False
+                            row["vt_score"] = None
+                            row["osint_error"] = "no public ip (skipped)"
+                            row["final_score"] = None
+                            row["final_verdict"] = "OSINT Skipped"
                     chunk_rows.append(row)
 
                     total_flows += 1
@@ -650,7 +757,7 @@ class DecisionEngine:
             )
 
             r = df.iloc[i]
-            result.append({
+            row = {
                 "id": str(uuid.uuid4())[:8],
                 "analysis_id": None,
                 "upload_filename": "realtime",
@@ -676,7 +783,47 @@ class DecisionEngine:
                 "risk_score": risk,
                 "risk_level": risk_level,
                 "is_anomaly": is_anom,
-            })
+            }
+
+            # OSINT validation (only when anomaly detector flags a flow)
+            if is_anom:
+                ip_to_check = None
+                try:
+                    for candidate in (row["src_ip"], row["dst_ip"]):
+                        ip_obj = ipaddress.ip_address(str(candidate).strip())
+                        if ip_obj.is_global:
+                            ip_to_check = str(ip_obj)
+                            break
+                except Exception:
+                    ip_to_check = None
+
+                ml_confidence = float(np.clip(anom_score, 0, 1)) * 100.0
+                if ip_to_check:
+                    osint = run_osint_checks(ip_to_check)
+                    row["osint_ip"] = osint.ip
+                    row["abuse_ok"] = bool(osint.abuse_ok)
+                    row["abuse_score"] = osint.abuse_score
+                    row["vt_ok"] = bool(osint.vt_ok)
+                    row["vt_score"] = osint.vt_score
+                    row["osint_error"] = osint.error
+                    if not osint.abuse_ok and not osint.vt_ok:
+                        row["final_score"] = None
+                        row["final_verdict"] = "OSINT Unavailable"
+                    else:
+                        final_score = compute_final_score(ml_confidence, osint.abuse_score, osint.vt_score)
+                        row["final_score"] = final_score
+                        row["final_verdict"] = osint_verdict_from_final_score(final_score)
+                else:
+                    row["osint_ip"] = None
+                    row["abuse_ok"] = False
+                    row["abuse_score"] = None
+                    row["vt_ok"] = False
+                    row["vt_score"] = None
+                    row["osint_error"] = "no public ip (skipped)"
+                    row["final_score"] = None
+                    row["final_verdict"] = "OSINT Skipped"
+
+            result.append(row)
 
         return result
 
@@ -687,14 +834,14 @@ class DecisionEngine:
         csv_name = f"{process_id}.csv"
         csv_path = output_dir / csv_name
 
-        # Use backend venv's cicflowmeter so it works when run under sudo (subprocess doesn't see venv PATH)
-        cicflowmeter_bin = _VENV_BIN / "cicflowmeter"
-        if not cicflowmeter_bin.exists():
-            cicflowmeter_bin = _VENV_BIN / "cicflowmeter.exe"
-        if not cicflowmeter_bin.exists():
-            exe_dir = Path(sys.executable).resolve().parent
-            cicflowmeter_bin = exe_dir / "cicflowmeter" if (exe_dir / "cicflowmeter").exists() else (shutil.which("cicflowmeter") or "cicflowmeter")
-        cicflowmeter_bin = str(cicflowmeter_bin)
+        try:
+            cicflowmeter_bin = _find_cicflowmeter()
+        except Exception as e:
+            raise RuntimeError(
+                "cicflowmeter is required to convert PCAP/PCAPNG to CSV but was not found. "
+                "Install it in the environment running the backend (pip install -r backend/requirements.txt) "
+                "or set CICFLOWMETER_BIN to the executable path."
+            ) from e
 
         cmd = [cicflowmeter_bin, "-f", pcap_path, "-c", str(csv_path)]
         logger.info(f"Running: {' '.join(cmd)}")

@@ -5,6 +5,9 @@ Orchestrates data loading, preprocessing, model training (supervised & unsupervi
 import sys
 import pickle
 import json
+import os
+import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
@@ -31,12 +34,142 @@ MODELS_DIR = PROJECT_ROOT / "training_pipeline" / "models"
 SUPERVISED_MODEL_PATH = MODELS_DIR / "supervised" / "rf_model.pkl"
 UNSUPERVISED_MODEL_PATH = MODELS_DIR / "unsupervised" / "if_model.pkl"
 ARTIFACTS_DIR = MODELS_DIR / "artifacts"
+CAPTURE_CACHE_DIR = PROJECT_ROOT / "training_pipeline" / "data" / "processed" / "captures_converted"
+
+
+def _pick_cicflowmeter() -> str | None:
+    """Pick a runnable cicflowmeter binary from common locations."""
+    env_path = os.environ.get("CICFLOWMETER_BIN")
+    candidates: list[Path | str] = []
+    if env_path:
+        candidates.extend([Path(env_path), env_path])
+
+    # Common project-local and runtime paths
+    candidates.extend(
+        [
+            PROJECT_ROOT / "backend" / ".venv" / "bin" / "cicflowmeter",
+            PROJECT_ROOT / ".venv" / "bin" / "cicflowmeter",
+            "cicflowmeter",
+        ]
+    )
+
+    for candidate in candidates:
+        if isinstance(candidate, Path):
+            if candidate.exists() and candidate.is_file() and os.access(str(candidate), os.X_OK):
+                return str(candidate)
+        else:
+            resolved = shutil.which(candidate)
+            if resolved:
+                return resolved
+    return None
+
+
+def _training_roots() -> list[Path]:
+    """
+    Build recursive training roots.
+    Optional env:
+      - TRAINING_DATA_ROOTS=/abs/path/one:/abs/path/two
+    """
+    env_roots = os.environ.get("TRAINING_DATA_ROOTS", "").strip()
+    if env_roots:
+        roots = [Path(p).expanduser().resolve() for p in env_roots.split(os.pathsep) if p.strip()]
+        # Keep existing default too so current behavior still works.
+        roots.append(RAW_DATA_DIR)
+    else:
+        roots = [RAW_DATA_DIR]
+
+    # De-duplicate while preserving order.
+    seen: set[Path] = set()
+    unique_roots: list[Path] = []
+    for root in roots:
+        if root not in seen:
+            unique_roots.append(root)
+            seen.add(root)
+    return unique_roots
+
+
+def _discover_files(roots: list[Path]) -> tuple[list[Path], list[Path]]:
+    """Recursively discover csv and capture files across roots."""
+    csv_files: list[Path] = []
+    capture_files: list[Path] = []
+    capture_exts = {".pcap", ".pcapng"}
+    for root in roots:
+        if not root.exists():
+            logger.warning(f"Training data root not found: {root}")
+            continue
+        for p in root.rglob("*"):
+            if not p.is_file():
+                continue
+            ext = p.suffix.lower()
+            if ext == ".csv":
+                csv_files.append(p)
+            elif ext in capture_exts:
+                capture_files.append(p)
+    return csv_files, capture_files
+
+
+def _convert_captures_to_csv(capture_files: list[Path]) -> list[Path]:
+    """
+    Convert pcap/pcapng captures into flow CSVs using cicflowmeter.
+    Existing outputs are reused so repeated training runs are incremental.
+    """
+    if not capture_files:
+        return []
+
+    cicflowmeter_bin = _pick_cicflowmeter()
+    if not cicflowmeter_bin:
+        logger.warning(
+            "Found capture files (.pcap/.pcapng) but cicflowmeter is not available. "
+            "Set CICFLOWMETER_BIN or install cicflowmeter in an active environment."
+        )
+        return []
+
+    CAPTURE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    out_csvs: list[Path] = []
+    total = len(capture_files)
+    for i, capture in enumerate(sorted(capture_files), 1):
+        safe_name = str(capture).replace("/", "__").replace(":", "_")
+        out_csv = CAPTURE_CACHE_DIR / f"{safe_name}.csv"
+        if out_csv.exists() and out_csv.stat().st_size > 0:
+            out_csvs.append(out_csv)
+            continue
+
+        logger.info(f"[Capture->CSV {i}/{total}] {capture}")
+        result = subprocess.run(
+            [cicflowmeter_bin, "-f", str(capture), "-c", str(out_csv)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                f"cicflowmeter failed for {capture} (exit={result.returncode}). "
+                f"stderr={result.stderr.strip()[:300]}"
+            )
+            continue
+        if out_csv.exists() and out_csv.stat().st_size > 0:
+            out_csvs.append(out_csv)
+
+    return out_csvs
 
 
 def get_training_data():
-    """Load all CSVs from flow data directory (recursive). Generate synthetic if empty."""
-    # Recursive search for all CSVs in subdirectories (e.g. Wednesday, Friday)
-    csv_files = list(RAW_DATA_DIR.rglob("*.csv"))
+    """
+    Load training data recursively from configured roots.
+    Supports:
+      - CSV files directly
+      - pcap/pcapng (converted to CSV flows via cicflowmeter)
+    Generates synthetic CSV only as final fallback when no data is discovered.
+    """
+    roots = _training_roots()
+    csv_files, capture_files = _discover_files(roots)
+    converted_csvs = _convert_captures_to_csv(capture_files)
+    csv_files.extend(converted_csvs)
+    # Deduplicate CSV paths
+    csv_files = sorted({p.resolve() for p in csv_files})
+    logger.info(
+        f"Discovered training files from {len(roots)} roots: "
+        f"{len(csv_files)} CSVs (including converted), {len(capture_files)} captures."
+    )
     
     if not csv_files:
         logger.warning(f"No CSV files found in {RAW_DATA_DIR}. Generating synthetic data...")
@@ -50,14 +183,22 @@ def get_training_data():
         except ImportError:
             logger.error("Could not find synthetic data generator script.")
         
-    logger.info(f"Found {len(csv_files)} CSVs.")
-    
+    logger.info(f"Loading {len(csv_files)} CSV files for training.")
+
     dfs = []
+    labeled_files = 0
+    unlabeled_files = 0
     for f in csv_files:
         df = load_data(str(f))
         if not df.empty:
+            has_label = "Label" in df.columns
+            labeled_files += 1 if has_label else 0
+            unlabeled_files += 0 if has_label else 1
             dfs.append(df)
-            
+    logger.info(
+        f"Loaded datasets: labeled_files={labeled_files}, unlabeled_files={unlabeled_files}"
+    )
+
     if not dfs:
         raise ValueError("No data loaded!")
         

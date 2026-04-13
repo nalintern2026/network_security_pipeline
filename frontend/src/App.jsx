@@ -6,6 +6,7 @@ import History from './pages/History';
 import HistoryReport from './pages/HistoryReport';
 import TrafficAnalysis from './pages/TrafficAnalysis';
 import Anomalies from './pages/Anomalies';
+import OSINTValidation from './pages/OSINTValidation';
 import ModelPerformance from './pages/ModelPerformance';
 import SBOMSecurity from './pages/SBOMSecurity';
 import ActiveMonitoring from './pages/ActiveMonitoring';
@@ -21,6 +22,7 @@ function App() {
           <Route path="/history/:id" element={<HistoryReport />} />
           <Route path="/traffic" element={<TrafficAnalysis />} />
           <Route path="/anomalies" element={<Anomalies />} />
+          <Route path="/osint" element={<OSINTValidation />} />
           <Route path="/models" element={<ModelPerformance />} />
           <Route path="/active" element={<ActiveMonitoring />} />
           <Route path="/security" element={<SBOMSecurity />} />

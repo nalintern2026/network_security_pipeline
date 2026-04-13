@@ -9,6 +9,17 @@ import glob
 from datetime import datetime, timedelta
 from pathlib import Path
 import shutil
+
+# Load .env (local dev / docker) so OSINT keys and settings are available.
+try:
+    from dotenv import load_dotenv  # type: ignore
+
+    _env_path = Path(__file__).resolve().parent.parent.parent / ".env"  # nal/.env
+    load_dotenv(dotenv_path=_env_path, override=False)
+except Exception:
+    # If python-dotenv isn't available or .env missing, continue with raw environment.
+    pass
+
 from app.services.decision_service import decision_engine
 from app import db
 
@@ -17,6 +28,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, Tuple
+
+# OSINT routes (dedicated UI page)
+from app.osint_routes import router as osint_router
 
 app = FastAPI(
     title="Network Security Intelligence API",
@@ -35,6 +49,9 @@ app.add_middleware(
 
 # Initialize database
 db.init_db()
+
+# Routes
+app.include_router(osint_router)
 
 # ── In-memory storage (for analysis results only) ────────────────────
 # Flow records are now stored in SQLite database (db.py)

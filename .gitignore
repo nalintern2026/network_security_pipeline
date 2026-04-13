@@ -19,6 +19,10 @@ ipython_config.py
 .vscode/
 .history/
 
+# Environment / secrets
+.env
+.env.*
+
 # Data & Large Files
 data/
 training_pipeline/data/

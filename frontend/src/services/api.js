@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+// Force backend target to local FastAPI on port 8000.
+const API_BASE = 'http://127.0.0.1:8000/api';
 
 console.log('🌐 API Service initialized with API_BASE:', API_BASE);
 console.log('🌐 VITE_API_URL env var:', import.meta.env.VITE_API_URL);
@@ -43,6 +44,9 @@ export const getTrafficTrends = (params = {}) => api.get('/traffic/trends', { pa
 
 // Anomalies / Threats
 export const getAnomalies = (params = {}) => api.get('/anomalies', { params });
+
+// OSINT Validation
+export const getOsintFlows = (params = {}) => api.get('/osint/flows', { params });
 
 // Model Metrics
 export const getModelMetrics = () => api.get('/models/metrics');

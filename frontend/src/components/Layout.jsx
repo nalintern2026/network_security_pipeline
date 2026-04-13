@@ -13,6 +13,7 @@ import {
     Wifi,
     History as HistoryIcon,
     Radio,
+    ShieldCheck,
 } from 'lucide-react';
 import { checkHealth, isUploadInProgress } from '../services/api';
 
@@ -23,6 +24,7 @@ const navItems = [
     { path: '/history', label: 'History', icon: HistoryIcon },
     { path: '/traffic', label: 'Traffic Analysis', icon: Network },
     { path: '/anomalies', label: 'Anomalies', icon: AlertTriangle },
+    { path: '/osint', label: 'OSINT Validation', icon: ShieldCheck },
     { path: '/models', label: 'Model Performance', icon: BarChart3 },
     { path: '/security', label: 'SBOM Security', icon: Shield },
 ];

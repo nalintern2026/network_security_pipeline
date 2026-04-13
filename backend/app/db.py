@@ -20,6 +20,10 @@ _candidates = [
 ]
 DB_PATH = next((p for p in _candidates if p.parent.is_dir()), _candidates[0])
 
+# Dedicated store for the dashboard **passive** Traffic Timeline only (decoupled from flows.db queries).
+PASSIVE_TIMELINE_DB_PATH = DB_PATH.parent / "passive_timeline.db"
+passive_timeline_lock = threading.Lock()
+
 # Protocol filter: DB may store number ("6") or name ("TCP") from different sources. Match both.
 PROTOCOL_FILTER_VALUES = {
     "TCP": ("6", "TCP"),
@@ -82,6 +86,22 @@ def init_db():
             cursor.execute("ALTER TABLE flows ADD COLUMN classification_reason TEXT")
         if "monitor_type" not in existing_columns:
             cursor.execute("ALTER TABLE flows ADD COLUMN monitor_type TEXT DEFAULT 'passive'")
+        if "osint_ip" not in existing_columns:
+            cursor.execute("ALTER TABLE flows ADD COLUMN osint_ip TEXT")
+        if "abuse_score" not in existing_columns:
+            cursor.execute("ALTER TABLE flows ADD COLUMN abuse_score REAL")
+        if "vt_score" not in existing_columns:
+            cursor.execute("ALTER TABLE flows ADD COLUMN vt_score REAL")
+        if "final_score" not in existing_columns:
+            cursor.execute("ALTER TABLE flows ADD COLUMN final_score REAL")
+        if "final_verdict" not in existing_columns:
+            cursor.execute("ALTER TABLE flows ADD COLUMN final_verdict TEXT")
+        if "osint_error" not in existing_columns:
+            cursor.execute("ALTER TABLE flows ADD COLUMN osint_error TEXT")
+        if "abuse_ok" not in existing_columns:
+            cursor.execute("ALTER TABLE flows ADD COLUMN abuse_ok BOOLEAN")
+        if "vt_ok" not in existing_columns:
+            cursor.execute("ALTER TABLE flows ADD COLUMN vt_ok BOOLEAN")
 
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_timestamp ON flows(timestamp DESC);
@@ -126,6 +146,103 @@ def init_db():
         conn.commit()
         conn.close()
 
+    init_passive_timeline_db()
+
+
+def init_passive_timeline_db() -> None:
+    """Create passive_timeline.db and optional backfill from main DB when empty."""
+    with passive_timeline_lock:
+        conn = sqlite3.connect(str(PASSIVE_TIMELINE_DB_PATH))
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS passive_upload_points (
+                analysis_id TEXT PRIMARY KEY,
+                uploaded_at TEXT NOT NULL,
+                total_flows INTEGER NOT NULL DEFAULT 0,
+                anomaly_count INTEGER NOT NULL DEFAULT 0,
+                filename TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_passive_upload_points_time
+            ON passive_upload_points(uploaded_at ASC)
+        """)
+        cursor.execute("SELECT COUNT(*) FROM passive_upload_points")
+        n = cursor.fetchone()[0]
+        conn.commit()
+        conn.close()
+
+    if n == 0:
+        _backfill_passive_timeline_store()
+
+
+def _backfill_passive_timeline_store() -> None:
+    """Seed passive_timeline.db from analysis_history + flows fallback (same universe as History)."""
+    try:
+        hist = get_analysis_history(limit=500, monitor_type="passive")
+    except Exception:
+        return
+    for h in hist:
+        aid = h.get("analysis_id")
+        if not aid:
+            continue
+        record_passive_timeline_point(
+            str(aid),
+            str(h.get("uploaded_at") or ""),
+            int(h.get("total_flows") or 0),
+            int(h.get("anomaly_count") or 0),
+            str(h.get("filename") or ""),
+        )
+
+
+def record_passive_timeline_point(
+    analysis_id: str,
+    uploaded_at: str,
+    total_flows: int,
+    anomaly_count: int,
+    filename: str = "",
+) -> None:
+    """Append/update one passive upload point for the dashboard bar chart (separate DB)."""
+    if not analysis_id or not str(uploaded_at).strip():
+        return
+    with passive_timeline_lock:
+        conn = sqlite3.connect(str(PASSIVE_TIMELINE_DB_PATH))
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO passive_upload_points
+            (analysis_id, uploaded_at, total_flows, anomaly_count, filename)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (analysis_id, uploaded_at, total_flows, anomaly_count, filename or None),
+        )
+        conn.commit()
+        conn.close()
+
+
+def get_passive_timeline_points(limit: int = 40) -> List[Dict[str, Any]]:
+    """Points for passive Traffic Timeline: oldest first, cap `limit` most recent uploads."""
+    with passive_timeline_lock:
+        conn = sqlite3.connect(str(PASSIVE_TIMELINE_DB_PATH))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT uploaded_at AS hour, total_flows AS total, anomaly_count AS anomalies
+                FROM passive_upload_points
+                ORDER BY uploaded_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            rows = [dict(row) for row in cursor.fetchall()]
+        except sqlite3.OperationalError:
+            rows = []
+        conn.close()
+    return list(reversed(rows))
+
 
 def insert_analysis(
     analysis_id: str,
@@ -140,10 +257,10 @@ def insert_analysis(
     report_details: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Insert or replace analysis metadata into history."""
+    uploaded_at = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S') + 'Z'
     with db_lock:
         conn = sqlite3.connect(str(DB_PATH))
         cursor = conn.cursor()
-        uploaded_at = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S') + 'Z'
         cursor.execute("""
             INSERT OR REPLACE INTO analysis_history (
                 analysis_id, filename, monitor_type, uploaded_at, file_size,
@@ -165,6 +282,12 @@ def insert_analysis(
         ))
         conn.commit()
         conn.close()
+
+    mt = (monitor_type or "passive").strip().lower()
+    if mt != "active":
+        record_passive_timeline_point(
+            analysis_id, uploaded_at, total_flows, anomaly_count, filename
+        )
 
 
 def get_analysis_history(limit: int = 100, monitor_type: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -375,8 +498,10 @@ def insert_flows(flows: List[Dict[str, Any]], monitor_type: str = "passive") -> 
                         duration, total_fwd_packets, total_bwd_packets, total_length_fwd,
                         total_length_bwd, flow_bytes_per_sec, flow_packets_per_sec,
                         classification, threat_type, cve_refs, classification_reason,
-                        confidence, anomaly_score, risk_score, risk_level, is_anomaly, monitor_type
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        confidence, anomaly_score, risk_score, risk_level, is_anomaly, monitor_type,
+                        osint_ip, abuse_score, vt_score, final_score, final_verdict,
+                        osint_error, abuse_ok, vt_ok
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     flow.get('id'),
                     flow.get('analysis_id'),
@@ -404,6 +529,14 @@ def insert_flows(flows: List[Dict[str, Any]], monitor_type: str = "passive") -> 
                     flow.get('risk_level'),
                     flow.get('is_anomaly', False),
                     flow.get('monitor_type', mt),
+                    flow.get('osint_ip'),
+                    flow.get('abuse_score'),
+                    flow.get('vt_score'),
+                    flow.get('final_score'),
+                    flow.get('final_verdict'),
+                    flow.get('osint_error'),
+                    flow.get('abuse_ok'),
+                    flow.get('vt_ok'),
                 ))
                 inserted += 1
             except Exception as e:
@@ -492,6 +625,54 @@ def get_flows(
         return flows, total
 
 
+def get_osint_flows(
+    page: int = 1,
+    per_page: int = 20,
+    src_ip: Optional[str] = None,
+    monitor_type: Optional[str] = None,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Get paginated flows that have OSINT enrichment populated."""
+    page = max(int(page or 1), 1)
+    per_page = max(1, min(int(per_page or 20), 500))
+
+    with db_lock:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        where_clauses = ["(COALESCE(osint_ip, '') != '' OR COALESCE(final_verdict, '') != '')"]
+        params: list[Any] = []
+
+        if monitor_type and str(monitor_type).strip().lower() in ("passive", "active"):
+            where_clauses.append("COALESCE(monitor_type, 'passive') = ?")
+            params.append(str(monitor_type).strip().lower())
+
+        if src_ip and str(src_ip).strip():
+            where_clauses.append("LOWER(COALESCE(src_ip, '')) LIKE LOWER(?)")
+            params.append(f"%{str(src_ip).strip()}%")
+
+        where_sql = " AND ".join(where_clauses)
+        where_sql = f"WHERE {where_sql}" if where_sql else ""
+
+        cursor.execute(f"SELECT COUNT(*) as cnt FROM flows {where_sql}", params)
+        total = cursor.fetchone()["cnt"] or 0
+
+        offset = (page - 1) * per_page
+        cursor.execute(
+            f"""
+            SELECT * FROM flows
+            {where_sql}
+            ORDER BY timestamp DESC
+            LIMIT ? OFFSET ?
+            """,
+            params + [per_page, offset],
+        )
+        rows = cursor.fetchall()
+        flows = [dict(r) for r in rows]
+        conn.close()
+        return flows, total
+
+
 def get_flow_counts_by_monitor_type() -> Dict[str, int]:
     """Return count of flows per monitor_type for debugging."""
     with db_lock:
@@ -515,6 +696,11 @@ def get_dashboard_stats(monitor_type: Optional[str] = None) -> Dict[str, Any]:
     else:
         where_monitor = ""
         params = []
+
+    # Passive Traffic Timeline: dedicated store (passive_timeline.db), not flows.db aggregates.
+    passive_timeline_precomputed: Optional[List[Dict[str, Any]]] = None
+    if monitor_type and str(monitor_type).strip().lower() == "passive":
+        passive_timeline_precomputed = get_passive_timeline_points(limit=40)
 
     with db_lock:
         conn = sqlite3.connect(str(DB_PATH))
@@ -555,22 +741,33 @@ def get_dashboard_stats(monitor_type: Optional[str] = None) -> Dict[str, Any]:
         risk_dist = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
         risk_dist.update(risk_dist_db)
 
-        # Get timeline (last 1 hour, grouped by minute)
-        # Must use datetime() to normalize ISO 'T' separator vs SQLite space separator
-        timeline_where = "WHERE datetime(timestamp) > datetime('now', '-1 hour')"
-        if where_monitor.strip():
-            timeline_where += " AND " + where_monitor.replace("WHERE", "").strip()
-        cursor.execute("""
-            SELECT 
-                substr(timestamp, 1, 16) as hour,
-                COUNT(*) as total,
-                SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) as anomalies
-            FROM flows
-            """ + timeline_where + """
-            GROUP BY substr(timestamp, 1, 16)
-            ORDER BY hour
-        """, params)
-        timeline = [dict(row) for row in cursor.fetchall()]
+        # Timeline
+        #
+        # Passive (uploads): show points by upload timestamp so the graph updates after each upload
+        # (uploads are bursty; "last 1h of flows" can look empty even though uploads exist).
+        #
+        # Active (live): show last 1 hour of flows grouped by minute.
+        if monitor_type and str(monitor_type).strip().lower() == "passive":
+            timeline = passive_timeline_precomputed or []
+        else:
+            # Must use datetime() to normalize ISO 'T' separator / Z suffix / fractional seconds.
+            window = "-1 hour"
+            timeline_bucket = "substr(timestamp, 1, 16)"  # YYYY-MM-DDTHH:MM
+
+            timeline_where = f"WHERE datetime(timestamp) > datetime('now', '{window}')"
+            if where_monitor.strip():
+                timeline_where += " AND " + where_monitor.replace("WHERE", "").strip()
+            cursor.execute("""
+                SELECT 
+                    """ + timeline_bucket + """ as hour,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END) as anomalies
+                FROM flows
+                """ + timeline_where + """
+                GROUP BY """ + timeline_bucket + """
+                ORDER BY hour
+            """, params)
+            timeline = [dict(row) for row in cursor.fetchall()]
 
         # Get protocol distribution
         cursor.execute("""
